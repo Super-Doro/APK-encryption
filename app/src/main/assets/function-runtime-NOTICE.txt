@@ -1,0 +1,7 @@
+The protected runtime bundles AndroidHiddenApiBypass 6.1.
+Project: https://github.com/LSPosed/AndroidHiddenApiBypass
+Authors: LSPosed contributors
+License: Apache License, Version 2.0 (see LICENSE.txt in this directory).
+
+Its runtime class namespace is relocated to com.function.protect.runtimebridge
+to keep it independent of libraries included in the protected application.

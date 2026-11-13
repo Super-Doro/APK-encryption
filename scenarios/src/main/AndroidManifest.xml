@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:name="${scenarioApplication}" android:appComponentFactory="${scenarioFactory}"
+        android:label="通用隔离策略样例" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity android:name="com.function.scenarios.ScenarioActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <service android:name="com.function.scenarios.BasicService" android:process=":basic" android:isolatedProcess="true" android:exported="false" />
+    </application>
+</manifest>

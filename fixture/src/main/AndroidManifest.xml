@@ -1,0 +1,14 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries><package android:name="com.catchingnow.icebox" /></queries>
+    <application android:name=".FixtureApplication" android:appComponentFactory=".FixtureFactory"
+        android:label="加密验证样例" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity android:name=".FixtureActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <provider android:name=".FixtureProvider" android:authorities="com.function.fixture.provider" android:exported="false" />
+        <service android:name=".FixtureIsolatedService" android:isolatedProcess="true" android:process=":isolated" android:exported="true" />
+    </application>
+</manifest>

@@ -1,0 +1,18 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.function.protect'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.function.protect.template'
+        minSdk 29
+        targetSdk 35
+        versionCode 1
+        versionName '2.0'
+    }
+    sourceSets.main.java.srcDir '../shared/src/main/java'
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+dependencies { implementation 'org.lsposed.hiddenapibypass:hiddenapibypass:6.1' }

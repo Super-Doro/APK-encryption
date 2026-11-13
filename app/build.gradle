@@ -1,0 +1,67 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.function.cardissuer'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.function.cardissuer'
+        minSdk 29
+        targetSdk 35
+        versionCode 11
+        versionName '3.0.6'
+        testInstrumentationRunner 'com.function.cardissuer.CryptoDeviceTest'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    sourceSets.main.java.srcDir '../shared/src/main/java'
+    sourceSets.main.assets.srcDir layout.buildDirectory.dir('generated/shellAssets')
+    sourceSets.androidTest.assets.srcDir layout.buildDirectory.dir('generated/testAssets')
+}
+
+dependencies {
+    implementation 'com.android.tools.build:apksig:8.9.2'
+    implementation 'org.smali:dexlib2:2.5.2'
+    implementation 'com.google.guava:guava:27.1-android'
+}
+
+tasks.register('prepareShell', Copy) {
+    dependsOn ':shell:assembleRelease'
+    from({ zipTree(project(':shell').layout.buildDirectory.file('outputs/apk/release/shell-release-unsigned.apk').get().asFile) }) {
+        include 'classes.dex'
+        rename 'classes.dex', 'function-shell.dex'
+    }
+    into layout.buildDirectory.dir('generated/shellAssets')
+}
+tasks.named('preBuild').configure { dependsOn 'prepareShell' }
+tasks.register('prepareScript', Copy) {
+    dependsOn ':script:assembleRelease'
+    from({ zipTree(project(':script').layout.buildDirectory.file('outputs/apk/release/script-release-unsigned.apk').get().asFile) }) {
+        include 'classes.dex'
+        rename 'classes.dex', 'function-script.dex'
+    }
+    into layout.buildDirectory.dir('generated/shellAssets')
+}
+tasks.named('preBuild').configure { dependsOn 'prepareScript' }
+tasks.register('prepareTestFixture', Copy) {
+    dependsOn ':fixture:assembleDebug'
+    from project(':fixture').layout.buildDirectory.file('outputs/apk/debug/fixture-debug.apk')
+    into layout.buildDirectory.dir('generated/testAssets')
+    rename 'fixture-debug.apk', 'fixture.apk'
+}
+tasks.matching {
+    it.name.contains('DebugAndroidTest')
+}.configureEach { dependsOn 'prepareTestFixture' }

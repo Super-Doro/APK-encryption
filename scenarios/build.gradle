@@ -1,0 +1,38 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.function.scenarios'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.function.scenarios'
+        minSdk 29
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+    }
+    buildFeatures { buildConfig true }
+    flavorDimensions 'initialization'
+    productFlavors {
+        plain {
+            dimension 'initialization'
+            applicationIdSuffix '.plain'
+            manifestPlaceholders = [scenarioApplication: 'android.app.Application', scenarioFactory: 'android.app.AppComponentFactory']
+            buildConfigField 'boolean', 'STATEFUL', 'false'
+        }
+        preferences {
+            dimension 'initialization'
+            applicationIdSuffix '.preferences'
+            manifestPlaceholders = [scenarioApplication: 'com.function.scenarios.PreferencesApplication', scenarioFactory: 'android.app.AppComponentFactory']
+            buildConfigField 'boolean', 'STATEFUL', 'false'
+        }
+        mixed {
+            dimension 'initialization'
+            applicationIdSuffix '.mixed'
+            manifestPlaceholders = [scenarioApplication: 'com.function.scenarios.StateApplication', scenarioFactory: 'com.function.scenarios.ScenarioFactory']
+            buildConfigField 'boolean', 'STATEFUL', 'true'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
