@@ -65,6 +65,10 @@ public final class MainActivity extends Activity {
     private TextView fileDetail;
     private TextView fileAction;
     private TextView policyValue;
+    private TextView validityValue;
+    private TextView validityTitle;
+    private TextView validityHint;
+    private View validityRow;
     private TextView notice;
     private TextView recordCount;
     private TextView empty;
@@ -80,6 +84,7 @@ public final class MainActivity extends Activity {
     private String inputName;
     private File pendingExport;
     private int policyIndex;
+    private int validHours = 24;
     private int currentTab;
     private boolean busy;
     private volatile String lastStage;
@@ -96,6 +101,7 @@ public final class MainActivity extends Activity {
             String export = state.getString("pendingExport");
             if (export != null) pendingExport = new File(export);
             policyIndex = Math.max(0, Math.min(2, state.getInt("isolationPolicy", 0)));
+            validHours = Math.max(1, Math.min(720, state.getInt("validHours", 24)));
             currentTab = state.getInt("tab", 0);
         }
         buildLayout();
@@ -103,6 +109,7 @@ public final class MainActivity extends Activity {
         reloadRecords();
         refreshForm();
         setTab(currentTab);
+        worker.execute(this::cleanDeletedRecords);
     }
 
     private void buildLayout() {
@@ -213,6 +220,20 @@ public final class MainActivity extends Activity {
         add(page, policy, 14);
         policyRow = policy;
         policy.setOnClickListener(view -> { if (!busy) showPolicy(); });
+
+        LinearLayout validity = row();
+        validity.setGravity(Gravity.CENTER_VERTICAL);
+        validity.setPadding(dp(18), dp(18), dp(18), dp(18));
+        validity.setBackground(shape(Color.WHITE, 18));
+        validityTitle = label("有效期", 15, INK, false);
+        validity.addView(validityTitle, new LinearLayout.LayoutParams(0, -2, 1));
+        validityValue = label("1 天  ›", 14, GRAY, false);
+        validity.addView(validityValue);
+        add(page, validity, 14);
+        validityRow = validity;
+        validity.setOnClickListener(view -> { if (!busy) showValidity(); });
+        validityHint = label("", 12, GRAY, false);
+        add(page, validityHint, 10);
 
         start = action("开始加密", true, this::encryptFile);
         add(page, start, 24);
@@ -345,20 +366,23 @@ public final class MainActivity extends Activity {
         File source = inputFile;
         String name = inputName;
         String policy = POLICY_VALUES[policyIndex];
+        long issuedAt = System.currentTimeMillis();
+        long expiresAt = issuedAt + validHours * 3_600_000L;
         setBusy(true);
         notice.setText("");
         publish("准备加密", 0);
         worker.execute(() -> {
             try {
                 ApkProtector.Result generated = name.toLowerCase(Locale.ROOT).endsWith(".sh")
-                        ? ScriptProtector.protect(this, source, name, (ProtectionProgress) this::publish)
-                        : ApkProtector.protect(this, source, name, policy, this::publish);
+                        ? ScriptProtector.protect(this, source, name, issuedAt, expiresAt, this::publish)
+                        : ApkProtector.protect(this, source, name, policy, issuedAt, expiresAt, this::publish);
                 source.delete();
                 runOnUiThread(() -> {
                     if (isDestroyed()) return;
                     inputFile = null;
                     inputName = null;
                     policyIndex = 0;
+                    validHours = 24;
                     setBusy(false);
                     reloadRecords();
                     showCompleted(generated);
@@ -390,6 +414,7 @@ public final class MainActivity extends Activity {
         TextView id = label("生成编号  " + result.id, 12, GRAY, false);
         id.setTextIsSelectable(true);
         add(content, id, 8);
+        add(content, label(expiryText(result), 14, GRAY, false), 10);
         add(content, action("导出加密文件", true, () -> { sheet.dismiss(); exportFile(result); }), 24);
         add(content, action("复制密钥", false, () -> copyKey(result)), 10);
         add(content, action("查看记录", false, () -> {
@@ -400,6 +425,53 @@ public final class MainActivity extends Activity {
         add(content, textAction("完成", sheet::dismiss), 10);
         sheet.show();
         sizeSheet(sheet);
+    }
+
+    private void showValidity() {
+        android.widget.NumberPicker days = new android.widget.NumberPicker(this);
+        days.setMinValue(0);
+        days.setMaxValue(30);
+        days.setValue(validHours / 24);
+        days.setWrapSelectorWheel(false);
+        android.widget.NumberPicker hours = new android.widget.NumberPicker(this);
+        hours.setMinValue(0);
+        hours.setMaxValue(days.getValue() == 30 ? 0 : 23);
+        hours.setValue(validHours % 24);
+        hours.setWrapSelectorWheel(false);
+        days.setOnValueChangedListener((picker, previous, current) -> hours.setMaxValue(current == 30 ? 0 : 23));
+        LinearLayout selectors = row();
+        selectors.setPadding(dp(24), dp(12), dp(24), dp(12));
+        LinearLayout dayColumn = column();
+        dayColumn.addView(label("天", 15, INK, false));
+        dayColumn.addView(days);
+        selectors.addView(dayColumn, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout hourColumn = column();
+        hourColumn.addView(label("小时", 15, INK, false));
+        hourColumn.addView(hours);
+        selectors.addView(hourColumn, new LinearLayout.LayoutParams(0, -2, 1));
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle(validityTitle.getText() + " · 最长30天")
+                .setView(selectors).setPositiveButton("确定", null).setNegativeButton("取消", null).create();
+        dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            days.clearFocus();
+            hours.clearFocus();
+            int selectedHours = days.getValue() * 24 + hours.getValue();
+            if (selectedHours == 0) { toast("请设置至少1小时"); return; }
+            validHours = selectedHours;
+            refreshForm();
+            dialog.dismiss();
+        });
+    }
+
+    private String durationText() {
+        int days = validHours / 24;
+        int hours = validHours % 24;
+        return days == 0 ? hours + " 小时" : days + " 天" + (hours == 0 ? "" : " " + hours + " 小时");
+    }
+
+    private String expiryText(ApkProtector.Result result) {
+        return result.expiresAt == 0 ? "未设置有效期" : (result.permanentActivation ? "激活截止  " : "到期  ")
+                + DateFormat.getDateTimeInstance().format(new Date(result.expiresAt));
     }
 
     private void showPolicy() {
@@ -457,23 +529,52 @@ public final class MainActivity extends Activity {
                 result.script ? "text/x-shellscript" : "application/vnd.android.package-archive");
     }
 
-    private void showMore(ApkProtector.Result result) {
-        String[] options = result.script ? new String[]{"保存密钥文件", "查看完整密钥"}
-                : new String[]{"保存密钥文件", "查看完整密钥", "查看处理策略"};
-        new AlertDialog.Builder(this).setTitle(result.sourceName).setItems(options, (dialog, index) -> {
-            if (index == 0) export(new File(result.apk.getParentFile(), "activation-key.txt"),
-                    safeName(result.sourceName) + "-" + result.id + "-key.txt", "text/plain");
-            else showText(index == 1 ? "专属密钥" : "处理策略报告", index == 1 ? result.key : result.strategyReport);
-        }).setNegativeButton("取消", null).show();
+    private void exportKey(ApkProtector.Result result) {
+        export(new File(result.apk.getParentFile(), "activation-key.txt"),
+                safeName(result.sourceName) + "-" + result.id + "-key.txt", "text/plain");
     }
 
-    private void showText(String title, String value) {
-        TextView text = label(value, 14, INK, false);
-        text.setTextIsSelectable(true);
-        text.setPadding(dp(24), dp(16), dp(24), dp(16));
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(text);
-        new AlertDialog.Builder(this).setTitle(title).setView(scroll).setPositiveButton("关闭", null).show();
+    private void confirmDelete(ApkProtector.Result result) {
+        if (busy) { toast("当前任务完成后即可删除"); return; }
+        new AlertDialog.Builder(this).setTitle("删除记录和文件")
+                .setMessage("永久删除本条记录、软件内部的加密文件及对应密钥，释放占用空间。\n\n"
+                        + result.sourceName + "\n" + result.id)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("删除", (dialog, which) -> deleteRecord(result)).show();
+    }
+
+    private void deleteRecord(ApkProtector.Result result) {
+        if (busy) { toast("当前任务完成后即可删除"); return; }
+        setBusy(true);
+        publish("正在删除记录和文件", -1);
+        worker.execute(() -> {
+            try {
+                ApkProtector.deleteRecord(this, result);
+                runOnUiThread(() -> {
+                    if (isDestroyed()) return;
+                    if (pendingExport != null && pendingExport.getParentFile().equals(result.apk.getParentFile())) {
+                        pendingExport = null;
+                    }
+                    setBusy(false);
+                    reloadRecords();
+                    toast("记录及对应文件已删除");
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> { if (!isDestroyed()) reloadRecords(); });
+                showError("删除失败", new java.io.IOException("删除 " + result.sourceName + "（" + result.id
+                        + "）失败。已标记的待删除文件将在下次启动时继续清理。", error));
+            }
+        });
+    }
+
+    private void cleanDeletedRecords() {
+        try { ApkProtector.cleanDeletedRecords(this); }
+        catch (java.io.IOException error) {
+            try {
+                ErrorLogStore.save(this, ErrorLogStore.describe(this, "待删除记录清理失败",
+                        android.util.Log.getStackTraceString(error)));
+            } catch (java.io.IOException logError) { android.util.Log.e("DoroEncrypt", "无法保存清理日志", logError); }
+        }
     }
 
     private void export(File source, String name, String mime) {
@@ -530,6 +631,10 @@ public final class MainActivity extends Activity {
         policyValue.setText(POLICY_LABELS[policyIndex]);
         policyRow.setVisibility(selected && inputName.toLowerCase(Locale.ROOT).endsWith(".apk") ? View.VISIBLE : View.GONE);
         policyRow.setAlpha(busy ? 0.55f : 1f);
+        validityValue.setText(durationText() + "  ›");
+        validityTitle.setText("激活有效期");
+        validityHint.setText("从开始加密起算，期限内激活后本机永久使用");
+        validityRow.setAlpha(busy ? 0.55f : 1f);
         start.setEnabled(selected && !busy);
         start.setAlpha(selected && !busy ? 1f : 0.38f);
         start.setText(busy ? "处理中…" : "开始加密");
@@ -648,6 +753,7 @@ public final class MainActivity extends Activity {
         state.putString("inputName", inputName);
         if (pendingExport != null) state.putString("pendingExport", pendingExport.getPath());
         state.putInt("isolationPolicy", policyIndex);
+        state.putInt("validHours", validHours);
         state.putInt("tab", currentTab);
         state.putString("search", search.getText().toString());
         super.onSaveInstanceState(state);
@@ -678,7 +784,8 @@ public final class MainActivity extends Activity {
         final TextView keyPreview = label("", 12, GRAY, false);
         final TextView copy = label("复制密钥", 14, BLUE, false);
         final TextView export = label("导出文件", 14, BLUE, false);
-        final TextView more = label("更多", 14, GRAY, false);
+        final TextView exportKey = label("导出密钥", 14, BLUE, false);
+        final TextView delete = label("删除", 14, Color.rgb(215, 55, 55), false);
         ApkProtector.Result record;
         RecordRow() {
             outer.setPadding(dp(20), dp(7), dp(20), dp(7));
@@ -697,23 +804,25 @@ public final class MainActivity extends Activity {
             add(card, keyPreview, 14);
             LinearLayout actions = row();
             actions.setGravity(Gravity.CENTER_VERTICAL);
-            for (TextView item : new TextView[]{copy, export, more}) {
+            for (TextView item : new TextView[]{copy, export, exportKey, delete}) {
                 item.setGravity(Gravity.CENTER);
+                item.setMinHeight(dp(48));
                 item.setPadding(0, dp(14), 0, dp(8));
                 actions.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
             }
             add(card, actions, 4);
             copy.setOnClickListener(view -> copyKey(record));
             export.setOnClickListener(view -> exportFile(record));
-            more.setOnClickListener(view -> showMore(record));
-            keyPreview.setOnClickListener(view -> showText("专属密钥", record.key));
+            exportKey.setOnClickListener(view -> MainActivity.this.exportKey(record));
+            delete.setOnClickListener(view -> confirmDelete(record));
         }
         void bind(ApkProtector.Result record) {
             this.record = record;
             name.setText(record.sourceName);
             identity.setText(record.packageName + "\n" + record.id);
             details.setText((record.script ? "SH" : "APK") + " · "
-                    + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(record.createdAt)));
+                    + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(record.createdAt))
+                    + "\n" + expiryText(record));
             keyPreview.setText(record.key);
         }
     }

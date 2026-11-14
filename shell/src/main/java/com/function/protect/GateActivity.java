@@ -15,7 +15,7 @@ public final class GateActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         setTheme(android.R.style.Theme_Material_Light_NoActionBar);
         super.onCreate(state);
-        if (ShellRuntime.unlockedLoader != null) {
+        if (ShellRuntime.isAuthorized()) {
             try {
                 Intent original = new Intent().setComponent(new ComponentName(getPackageName(),
                         ShellRuntime.config.getString("launcher")));
@@ -40,11 +40,18 @@ public final class GateActivity extends Activity {
         TextView title = text(content, getApplicationInfo().loadLabel(getPackageManager()).toString(), 27);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         text(content, "输入此加密包的专属密钥", 17);
+        text(content, "期限内完成激活，本机永久使用", 14);
         TextView identity = text(content, "包标识  " + (ShellRuntime.config == null ? "配置损坏"
                 : ShellRuntime.config.optString("id")), 12);
         identity.setTextIsSelectable(true);
+        long expiresAt = ShellRuntime.config == null ? 0 : ShellRuntime.config.optLong("expiresAt", 0);
+        if (expiresAt > 0) text(content, "激活截止时间  " + java.text.DateFormat.getDateTimeInstance()
+                .format(new java.util.Date(expiresAt)), 14);
         EditText input = new EditText(this);
-        input.setHint("FA2.…");
+        String keyPrefix = "FA2.";
+        if (expiresAt > 0) keyPrefix = "FA3.";
+        if (ShellRuntime.config != null && ShellRuntime.config.has("keySignature")) keyPrefix = "DK1.";
+        input.setHint(keyPrefix + "…");
         input.setTextSize(14);
         input.setMinLines(4);
         input.setMaxLines(8);

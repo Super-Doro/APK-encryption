@@ -31,37 +31,80 @@ public final class ScriptRunner {
             }
             JSONObject config = new JSONObject(new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8));
             byte[] id = Base64.getUrlDecoder().decode(config.getString("id"));
+            ActivationKeys.Policy keyPolicy = config.has("keySignature") ? new ActivationKeys.Policy(
+                    config.optLong("issuedAt"), config.optLong("expiresAt"),
+                    config.optString("keyHash"), config.optString("keySignature")) : null;
             java.security.PublicKey issuer = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(
                     Base64.getDecoder().decode(config.getString("publicKey"))));
-            byte[] key = ActivationKeys.open(args[1], id, config.getString("packageName"), issuer);
             File directory = new File(args[2]).getCanonicalFile();
             temporary = File.createTempFile("source-", ".sh", directory);
             temporary.setReadable(false, false);
             temporary.setWritable(false, false);
             temporary.setReadable(true, true);
             temporary.setWritable(true, true);
-            try (FileOutputStream output = new FileOutputStream(temporary)) {
-                if (config.optString("payloadFormat").equals("chunked-v1")) {
-                    try (java.io.InputStream input = openPayload(source)) {
-                        ActivationKeys.decryptStream(input, output, key, ActivationKeys.dexAad(id, "script.sh"));
+            try (ScriptActivation activation = new ScriptActivation(id, config.getString("packageName"))) {
+                String token = args[1];
+                byte[] key = null;
+                boolean restored = false;
+                try {
+                    String cached = activation.restore();
+                    if (cached != null && (token.isEmpty() || token.replaceAll("\\s", "")
+                            .equals(cached.replaceAll("\\s", "")))) {
+                        key = ActivationKeys.openStoredActivation(cached, id, config.getString("packageName"), issuer, keyPolicy);
+                        token = cached;
+                        restored = true;
                     }
-                } else {
-                    byte[] plain = ActivationKeys.decrypt(Base64.getDecoder().decode(config.getString("payload")),
-                            key, ActivationKeys.dexAad(id, "script.sh"));
-                    output.write(plain);
-                    Arrays.fill(plain, (byte) 0);
+                } catch (Exception error) {
+                    System.err.println("本机激活记录恢复失败，需要重新激活 " + error.getMessage());
                 }
-            } finally { Arrays.fill(key, (byte) 0); }
+                if (key == null) {
+                    if (token.isEmpty()) token = readKey();
+                    key = ActivationKeys.open(token, id, config.getString("packageName"), issuer, keyPolicy);
+                }
+                try (FileOutputStream output = new FileOutputStream(temporary)) {
+                    if (config.optString("payloadFormat").equals("chunked-v1")) {
+                        try (java.io.InputStream input = openPayload(source)) {
+                            ActivationKeys.decryptStream(input, output, key, ActivationKeys.dexAad(id, "script.sh"));
+                        }
+                    } else {
+                        byte[] plain = ActivationKeys.decrypt(Base64.getDecoder().decode(config.getString("payload")),
+                                key, ActivationKeys.dexAad(id, "script.sh"));
+                        output.write(plain);
+                        Arrays.fill(plain, (byte) 0);
+                    }
+                } finally { Arrays.fill(key, (byte) 0); }
+                if (!restored) {
+                    try { activation.save(token, keyPolicy); }
+                    catch (Exception error) {
+                        throw new java.io.IOException("本机激活保存失败，当前运行环境需支持私有存储及 Android Keystore", error);
+                    }
+                    System.err.println("本机激活成功，后续可直接运行此脚本。");
+                }
+            }
             List<String> command = new ArrayList<>(Arrays.asList("/system/bin/sh", temporary.getPath()));
             command.addAll(Arrays.asList(args).subList(3, args.length));
             ProcessBuilder builder = new ProcessBuilder(command).inheritIO();
             exit = builder.start().waitFor();
         } catch (Exception error) {
             System.err.println("解密执行失败 " + error.getMessage());
+            error.printStackTrace(System.err);
         } finally {
             if (temporary != null && !temporary.delete()) temporary.deleteOnExit();
         }
         System.exit(exit);
+    }
+
+    private static String readKey() throws Exception {
+        System.out.print("请输入专属密钥: ");
+        System.out.flush();
+        java.io.ByteArrayOutputStream line = new java.io.ByteArrayOutputStream();
+        int value;
+        while ((value = System.in.read()) != -1 && value != '\n') {
+            if (line.size() >= 8192) throw new Exception("密钥过长");
+            line.write(value);
+        }
+        if (line.size() == 0) throw new Exception("未输入激活密钥");
+        return new String(line.toByteArray(), StandardCharsets.UTF_8).trim();
     }
 
     private static java.io.InputStream openPayload(File source) throws Exception {

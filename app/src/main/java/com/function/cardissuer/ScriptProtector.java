@@ -24,6 +24,11 @@ final class ScriptProtector {
     }
 
     static ApkProtector.Result protect(Context context, File source, String name, ProtectionProgress progress) throws Exception {
+        return protect(context, source, name, 0, 0, progress);
+    }
+
+    static ApkProtector.Result protect(Context context, File source, String name, long issuedAt,
+            long expiresAt, ProtectionProgress progress) throws Exception {
         progress.update("准备加密脚本", 0);
         byte[] id = ActivationKeys.random(16);
         byte[] secret = ActivationKeys.random(32);
@@ -38,17 +43,23 @@ final class ScriptProtector {
             progress.update("正在加载签发密钥", 1);
             KeyPair issuer = IssuerKeyStore.loadOrCreate();
             progress.update("正在签发专属密钥", 2);
-            String token = ActivationKeys.issue(id, secret, identity, issuer.getPrivate());
-            JSONObject config = new JSONObject().put("version", 3).put("payloadFormat", "chunked-v1")
+            ActivationKeys.Policy keyPolicy = expiresAt > 0 ? ActivationKeys.issueCompact(id, secret,
+                    identity, issuer.getPrivate(), issuedAt, expiresAt) : null;
+            String token = keyPolicy == null
+                    ? ActivationKeys.issue(id, secret, identity, issuer.getPrivate(), issuedAt, expiresAt)
+                    : ActivationKeys.compactToken(secret);
+            JSONObject config = new JSONObject().put("version", 4).put("payloadFormat", "chunked-v1")
+                    .put("activationPolicy", "permanent-after-activation")
                     .put("id", buildId).put("packageName", identity)
+                    .put("issuedAt", issuedAt).put("expiresAt", expiresAt)
                     .put("publicKey", Base64.getEncoder().encodeToString(issuer.getPublic().getEncoded()));
+            if (keyPolicy != null) config.put("keyHash", keyPolicy.keyHash).put("keySignature", keyPolicy.signature);
             progress.update("正在读取脚本运行时", 3);
             byte[] dex = ApkProtector.read(context.getAssets().open("function-script.dex"), Integer.MAX_VALUE - 8);
             String header = "#!/system/bin/sh\n# FUNCTION_CONFIG="
                     + Base64.getEncoder().encodeToString(config.toString().getBytes(StandardCharsets.UTF_8)) + "\n"
-                    + "FUNCTION_SOURCE=\"$0\"\nFUNCTION_KEY=\"${1-}\"\n"
-                    + "if [ \"$#\" -gt 0 ]; then shift; fi\n"
-                    + "if [ -z \"$FUNCTION_KEY\" ]; then printf '请输入专属密钥: '; IFS= read -r FUNCTION_KEY || exit 1; fi\n"
+                    + "FUNCTION_SOURCE=\"$0\"\nFUNCTION_KEY=\"\"\n"
+                    + "case \"${1-}\" in FA2.*|FA3.*|DK1.*) FUNCTION_KEY=\"$1\"; shift ;; esac\n"
                     + "FUNCTION_TMP=\"$(mktemp -d \"${TMPDIR:-/data/local/tmp}/function-sh.XXXXXX\")\" || exit 1\n"
                     + "trap 'rm -f \"$FUNCTION_TMP/runner.dex\" \"$FUNCTION_TMP\"/source-*.sh; rmdir \"$FUNCTION_TMP\" 2>/dev/null' EXIT HUP INT TERM\n"
                     + "sed -n '/^__FUNCTION_DEX__$/,/^__FUNCTION_PAYLOAD__$/{/^__FUNCTION_DEX__$/d;/^__FUNCTION_PAYLOAD__$/q;p;}' \"$FUNCTION_SOURCE\" | base64 -d > \"$FUNCTION_TMP/runner.dex\" || exit 1\n"
@@ -74,9 +85,12 @@ final class ScriptProtector {
                 file.getFD().sync();
             }
             progress.update("正在保存专属密钥", 96);
+            ActivationKeys.ensureValidTime(token, keyPolicy);
             Files.write(new File(directory, "activation-key.txt").toPath(), (token + "\n").getBytes(StandardCharsets.UTF_8));
             JSONObject record = new JSONObject().put("kind", "sh").put("id", buildId).put("packageName", identity)
                     .put("sourceName", name).put("createdAt", System.currentTimeMillis()).put("key", token);
+            record.put("issuedAt", issuedAt).put("expiresAt", expiresAt);
+            record.put("activationPolicy", "permanent-after-activation");
             progress.update("正在保存生成记录", 97);
             Files.write(new File(directory, "result.json").toPath(), record.toString().getBytes(StandardCharsets.UTF_8));
             File destination = new File(root, buildId);

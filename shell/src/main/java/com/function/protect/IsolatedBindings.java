@@ -80,6 +80,7 @@ public final class IsolatedBindings {
                 }
                 String requested = data.readString();
                 if (!buildId.equals(requested)) throw new SecurityException("隔离服务包标识不匹配");
+                if (!ShellRuntime.isAuthorized()) throw new SecurityException(ShellRuntime.loadError);
                 // Only the explicitly bound receiver holds this Binder capability.
                 reply.writeNoException();
                 reply.writeString(token);
@@ -95,7 +96,7 @@ public final class IsolatedBindings {
     }
 
     static synchronized void warmup(Application application) {
-        if (warming || android.os.Process.isIsolated() || ShellRuntime.activeToken == null) return;
+        if (warming || android.os.Process.isIsolated() || !ShellRuntime.isAuthorized()) return;
         JSONArray services = ShellRuntime.config.optJSONArray("isolatedServices");
         if (services == null || services.length() == 0) return;
         warming = true;
@@ -142,6 +143,12 @@ public final class IsolatedBindings {
 
     static void observe(Application application) {
         application.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() {
+            @Override public void onActivityPreResumed(android.app.Activity activity) {
+                if (activity instanceof GateActivity || activity instanceof RestartActivity || ShellRuntime.isAuthorized()) return;
+                activity.startActivity(new Intent(activity, GateActivity.class)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
+                activity.finish();
+            }
             @Override public void onActivityCreated(android.app.Activity activity, android.os.Bundle saved) { warmup(application); }
             @Override public void onActivityStarted(android.app.Activity activity) {}
             @Override public void onActivityResumed(android.app.Activity activity) {}

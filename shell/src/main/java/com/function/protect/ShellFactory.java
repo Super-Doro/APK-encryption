@@ -69,7 +69,7 @@ public final class ShellFactory extends AppComponentFactory {
         return unlocked() ? original.instantiateProvider(cl, name) : new LockedProvider();
     }
 
-    private boolean unlocked() { return ShellRuntime.unlockedLoader != null; }
+    private boolean unlocked() { return ShellRuntime.isAuthorized(); }
 
     private void prepareOriginal(ClassLoader loaded) throws Exception {
         if (originalReady) return;

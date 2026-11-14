@@ -13,6 +13,10 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.security.KeyPair;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -45,6 +49,11 @@ final class ApkProtector {
 
     static Result protect(Context context, File source, String sourceName, String isolationPolicy,
             ProtectionProgress progress) throws Exception {
+        return protect(context, source, sourceName, isolationPolicy, 0, 0, progress);
+    }
+
+    static Result protect(Context context, File source, String sourceName, String isolationPolicy,
+            long issuedAt, long expiresAt, ProtectionProgress progress) throws Exception {
         byte[] id = ActivationKeys.random(16);
         byte[] encryptionKey = ActivationKeys.random(32);
         String buildId = ActivationKeys.encode(id);
@@ -93,15 +102,20 @@ final class ApkProtector {
             JSONArray isolationPlans = planner.plans();
             String strategyReport = IsolationPlanner.report(isolationPolicy, isolationPlans);
             KeyPair issuer = IssuerKeyStore.loadOrCreate();
+            ActivationKeys.Policy keyPolicy = expiresAt > 0 ? ActivationKeys.issueCompact(id, encryptionKey,
+                    manifest.packageName, issuer.getPrivate(), issuedAt, expiresAt) : null;
             JSONObject config = new JSONObject();
             JSONObject dexSizes = new JSONObject();
             config.put("version", 4).put("dexFormat", "chunked-v1").put("dexSizes", dexSizes)
+                    .put("issuedAt", issuedAt).put("expiresAt", expiresAt)
+                    .put("activationPolicy", "permanent-after-activation")
                     .put("id", buildId).put("packageName", manifest.packageName)
                     .put("launcher", manifest.launcher).put("factory", manifest.originalFactory)
                     .put("publicKey", Base64.getEncoder().encodeToString(issuer.getPublic().getEncoded()))
                     .put("isolatedServices", new JSONArray(manifest.isolatedServices))
                     .put("isolationPlans", isolationPlans)
                     .put("dex", new JSONArray(dex));
+            if (keyPolicy != null) config.put("keyHash", keyPolicy.keyHash).put("keySignature", keyPolicy.signature);
             File unsigned = new File(staging, "unsigned.apk");
             try (CountingOutputStream counting = new CountingOutputStream(new FileOutputStream(unsigned));
                     ZipOutputStream zip = new ZipOutputStream(counting)) {
@@ -176,10 +190,15 @@ final class ApkProtector {
             progress.update("正在校验安装包", 94);
             ApkVerifier.Result verified = new ApkVerifier.Builder(signed).setMinCheckedPlatformVersion(29).build().verify();
             if (!verified.isVerified()) throw new IOException("生成包签名校验失败 " + verified.getErrors());
-            String token = ActivationKeys.issue(id, encryptionKey, manifest.packageName, issuer.getPrivate());
-            ActivationKeys.open(token, id, manifest.packageName, issuer.getPublic());
+            String token = keyPolicy == null
+                    ? ActivationKeys.issue(id, encryptionKey, manifest.packageName, issuer.getPrivate(), issuedAt, expiresAt)
+                    : ActivationKeys.compactToken(encryptionKey);
+            byte[] checked = ActivationKeys.open(token, id, manifest.packageName, issuer.getPublic(), keyPolicy);
+            Arrays.fill(checked, (byte) 0);
             JSONObject record = new JSONObject().put("id", buildId).put("packageName", manifest.packageName)
                     .put("sourceName", sourceName)
+                    .put("activationPolicy", "permanent-after-activation")
+                    .put("issuedAt", issuedAt).put("expiresAt", expiresAt)
                     .put("strategyReport", strategyReport)
                     .put("createdAt", System.currentTimeMillis()).put("key", token);
             Files.write(new File(staging, "result.json").toPath(), record.toString().getBytes(StandardCharsets.UTF_8));
@@ -255,10 +274,56 @@ final class ApkProtector {
         directory.delete();
     }
 
+    static synchronized void deleteRecord(Context context, Result result) throws IOException {
+        File root = new File(context.getFilesDir(), "protected").getCanonicalFile();
+        File directory = result.apk.getParentFile();
+        if (!directory.getName().equals(result.id)
+                || !root.equals(directory.getCanonicalFile().getParentFile())
+                || Files.isSymbolicLink(directory.toPath())) throw new IOException("记录目录无效");
+        File pending = new File(root, ".deleting-" + result.id);
+        deleteRecordDirectory(root, pending);
+        if (!directory.exists()) return;
+        if (!directory.renameTo(pending)) throw new IOException("无法标记待删除记录");
+        deleteRecordDirectory(root, pending);
+    }
+
+    static synchronized void cleanDeletedRecords(Context context) throws IOException {
+        File root = new File(context.getFilesDir(), "protected").getCanonicalFile();
+        File[] pending = root.listFiles(file -> file.getName().startsWith(".deleting-"));
+        if (pending == null) return;
+        IOException failure = null;
+        for (File directory : pending) {
+            try { deleteRecordDirectory(root, directory); }
+            catch (IOException error) {
+                if (failure == null) failure = new IOException("部分待删除记录清理失败");
+                failure.addSuppressed(error);
+            }
+        }
+        if (failure != null) throw failure;
+    }
+
+    private static void deleteRecordDirectory(File root, File directory) throws IOException {
+        if (!root.equals(directory.getCanonicalFile().getParentFile())
+                || Files.isSymbolicLink(directory.toPath())) throw new IOException("待删除目录无效");
+        if (!directory.exists()) return;
+        Files.walkFileTree(directory.toPath(), new SimpleFileVisitor<Path>() {
+            @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+                Files.delete(file);
+                return FileVisitResult.CONTINUE;
+            }
+            @Override public FileVisitResult postVisitDirectory(Path folder, IOException error) throws IOException {
+                if (error != null) throw error;
+                Files.delete(folder);
+                return FileVisitResult.CONTINUE;
+            }
+        });
+    }
+
     static List<Result> history(Context context) {
         List<Result> results = new ArrayList<>();
         File[] directories = new File(context.getFilesDir(), "protected").listFiles();
         if (directories != null) for (File directory : directories) {
+            if (directory.getName().startsWith(".deleting-")) continue;
             try { results.add(Result.read(directory)); }
             catch (Exception error) { android.util.Log.w("FunctionProtect", "Unreadable history item", error); }
         }
@@ -275,6 +340,8 @@ final class ApkProtector {
         final boolean script;
         final String strategyReport;
         final String sourceName;
+        final long expiresAt;
+        final boolean permanentActivation;
         private Result(File directory, JSONObject record) throws Exception {
             script = record.optString("kind").equals("sh");
             apk = new File(directory, script ? "protected.sh" : "protected.apk");
@@ -285,6 +352,8 @@ final class ApkProtector {
             createdAt = record.getLong("createdAt");
             strategyReport = record.optString("strategyReport", "此记录未保存隔离策略报告。");
             sourceName = record.optString("sourceName", script ? packageName.replaceFirst("^sh/", "") : packageName + ".apk");
+            expiresAt = record.optLong("expiresAt", 0);
+            permanentActivation = record.optString("activationPolicy").equals("permanent-after-activation");
         }
         static Result read(File directory) throws Exception {
             return new Result(directory, new JSONObject(new String(readRecord(directory), StandardCharsets.UTF_8)));

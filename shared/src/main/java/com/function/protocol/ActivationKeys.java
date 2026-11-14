@@ -19,11 +19,103 @@ import javax.crypto.spec.SecretKeySpec;
 public final class ActivationKeys {
     public static final String PREFIX = "FA2.";
     private static final byte[] DOMAIN = "Function/APK-activation/v2\0".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] TIMED_DOMAIN = "Doro/activation/v3\0".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] COMPACT_DOMAIN = "Doro/compact-activation/v1\0".getBytes(StandardCharsets.UTF_8);
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final int CHUNK_SIZE = 1024 * 1024;
     private static final int STREAM_MAGIC = 0x46435331;
 
     private ActivationKeys() {}
+
+    /** Signed metadata stored with the encrypted file. The user supplies only its random AES key. */
+    public static final class Policy {
+        public final long issuedAt;
+        public final long expiresAt;
+        public final String keyHash;
+        public final String signature;
+
+        public Policy(long issuedAt, long expiresAt, String keyHash, String signature) {
+            this.issuedAt = issuedAt;
+            this.expiresAt = expiresAt;
+            this.keyHash = keyHash;
+            this.signature = signature;
+        }
+    }
+
+    public static Policy issueCompact(byte[] id, byte[] key, String packageName, PrivateKey issuer,
+            long issuedAt, long expiresAt) throws GeneralSecurityException {
+        if (id.length != 16 || key.length != 32 || issuedAt <= 0 || expiresAt <= issuedAt) {
+            throw new GeneralSecurityException("短密钥参数无效");
+        }
+        byte[] hash = MessageDigest.getInstance("SHA-256").digest(key);
+        Signature signer = signature();
+        signer.initSign(issuer);
+        signer.update(COMPACT_DOMAIN);
+        signer.update(compactPayload(id, packageName, issuedAt, expiresAt, hash));
+        return new Policy(issuedAt, expiresAt, Base64.getEncoder().encodeToString(hash),
+                Base64.getEncoder().encodeToString(signer.sign()));
+    }
+
+    public static String compactToken(byte[] key) throws GeneralSecurityException {
+        if (key.length != 32) throw new GeneralSecurityException("短密钥长度无效");
+        return "DK1." + encode(key);
+    }
+
+    public static byte[] open(String input, byte[] expectedId, String packageName, PublicKey issuer, Policy policy)
+            throws GeneralSecurityException {
+        return openWithPolicy(input, expectedId, packageName, issuer, policy, true);
+    }
+
+    public static byte[] openStoredActivation(String input, byte[] expectedId, String packageName,
+            PublicKey issuer, Policy policy) throws GeneralSecurityException {
+        return openWithPolicy(input, expectedId, packageName, issuer, policy, false);
+    }
+
+    private static byte[] openWithPolicy(String input, byte[] id, String packageName, PublicKey issuer,
+            Policy policy, boolean checkActivationWindow) throws GeneralSecurityException {
+        if (input == null || input.length() > 8192) throw new GeneralSecurityException("密钥格式错误");
+        String token = input.replaceAll("\\s", "");
+        if (!token.startsWith("DK1.")) return open(input, id, packageName, issuer, checkActivationWindow);
+        if (policy == null || id.length != 16) throw new GeneralSecurityException("加密文件缺少短密钥授权信息");
+        byte[] key = null;
+        boolean accepted = false;
+        try {
+            key = Base64.getUrlDecoder().decode(token.substring(4));
+            if (key.length != 32 || !encode(key).equals(token.substring(4))) {
+                throw new GeneralSecurityException("短密钥长度或编码错误");
+            }
+            byte[] hash = Base64.getDecoder().decode(policy.keyHash);
+            byte[] signed = Base64.getDecoder().decode(policy.signature);
+            if (hash.length != 32 || !MessageDigest.isEqual(hash, MessageDigest.getInstance("SHA-256").digest(key))) {
+                throw new GeneralSecurityException("此密钥不属于当前加密文件");
+            }
+            Signature verifier = signature();
+            verifier.initVerify(issuer);
+            verifier.update(COMPACT_DOMAIN);
+            verifier.update(compactPayload(id, packageName, policy.issuedAt, policy.expiresAt, hash));
+            if (!verifier.verify(signed)) throw new GeneralSecurityException("短密钥授权签名无效");
+            if (checkActivationWindow) checkWindow(policy.issuedAt, policy.expiresAt);
+            accepted = true;
+            return key;
+        } catch (IllegalArgumentException error) {
+            throw new GeneralSecurityException("短密钥或授权信息编码错误", error);
+        } finally {
+            if (!accepted && key != null) Arrays.fill(key, (byte) 0);
+        }
+    }
+
+    public static void ensureValidTime(String token, Policy policy) throws GeneralSecurityException {
+        if (token != null && token.replaceAll("\\s", "").startsWith("DK1.")) {
+            if (policy == null) throw new GeneralSecurityException("缺少短密钥有效期信息");
+            checkWindow(policy.issuedAt, policy.expiresAt);
+        } else ensureValidTime(token);
+    }
+
+    private static byte[] compactPayload(byte[] id, String packageName, long issuedAt, long expiresAt, byte[] hash)
+            throws GeneralSecurityException {
+        return ByteBuffer.allocate(96).put(id).put(hash).put(packageHash(packageName))
+                .putLong(issuedAt).putLong(expiresAt).array();
+    }
 
     public static byte[] random(int count) {
         byte[] bytes = new byte[count];
@@ -35,38 +127,94 @@ public final class ActivationKeys {
             throws GeneralSecurityException {
         if (id.length != 16 || key.length != 32) throw new GeneralSecurityException("密钥参数长度无效");
         byte[] payload = ByteBuffer.allocate(80).put(id).put(key).put(packageHash(packageName)).array();
+        return signToken(PREFIX, DOMAIN, payload, issuer);
+    }
+
+    public static String issue(byte[] id, byte[] key, String packageName, PrivateKey issuer,
+            long issuedAt, long expiresAt) throws GeneralSecurityException {
+        if (expiresAt == 0) return issue(id, key, packageName, issuer);
+        if (id.length != 16 || key.length != 32 || issuedAt <= 0 || expiresAt <= issuedAt) {
+            throw new GeneralSecurityException("有效期参数无效");
+        }
+        byte[] payload = ByteBuffer.allocate(96).put(id).put(key).put(packageHash(packageName))
+                .putLong(issuedAt).putLong(expiresAt).array();
+        return signToken("FA3.", TIMED_DOMAIN, payload, issuer);
+    }
+
+    private static String signToken(String prefix, byte[] domain, byte[] payload, PrivateKey issuer)
+            throws GeneralSecurityException {
         Signature signature = signature();
         signature.initSign(issuer);
-        signature.update(DOMAIN);
+        signature.update(domain);
         signature.update(payload);
         byte[] signed = signature.sign();
         if (signed.length != 256) throw new GeneralSecurityException("签发密钥必须为 RSA-2048");
-        return PREFIX + encode(ByteBuffer.allocate(336).put(payload).put(signed).array());
+        return prefix + encode(ByteBuffer.allocate(payload.length + signed.length).put(payload).put(signed).array());
     }
 
     public static byte[] open(String input, byte[] expectedId, String packageName, PublicKey issuer)
             throws GeneralSecurityException {
-        if (input == null || input.length() > 8192) throw new GeneralSecurityException("密钥格式错误");
-        String token = input.replaceAll("\\s", "");
-        if (!token.startsWith(PREFIX)) throw new GeneralSecurityException("请输入 FA2 开头的专属密钥");
-        byte[] bytes;
-        try { bytes = Base64.getUrlDecoder().decode(token.substring(4)); }
-        catch (IllegalArgumentException error) { throw new GeneralSecurityException("密钥编码错误", error); }
-        if (bytes.length != 336 || !encode(bytes).equals(token.substring(4))) {
-            throw new GeneralSecurityException("密钥长度或编码错误");
-        }
+        return open(input, expectedId, packageName, issuer, true);
+    }
+
+    /** For an activation recovered from authenticated device-local storage or its private Binder broker. */
+    public static byte[] openStoredActivation(String input, byte[] expectedId, String packageName, PublicKey issuer)
+            throws GeneralSecurityException {
+        return open(input, expectedId, packageName, issuer, false);
+    }
+
+    private static byte[] open(String input, byte[] expectedId, String packageName, PublicKey issuer,
+            boolean checkActivationWindow) throws GeneralSecurityException {
+        byte[] bytes = tokenBytes(input);
+        int payloadLength = bytes.length - 256;
         if (!MessageDigest.isEqual(expectedId, Arrays.copyOf(bytes, 16))
                 || !MessageDigest.isEqual(packageHash(packageName), Arrays.copyOfRange(bytes, 48, 80))) {
             throw new GeneralSecurityException("此密钥不属于当前加密包");
         }
         Signature signature = signature();
         signature.initVerify(issuer);
-        signature.update(DOMAIN);
-        signature.update(bytes, 0, 80);
-        if (!signature.verify(Arrays.copyOfRange(bytes, 80, bytes.length))) {
+        signature.update(payloadLength == 96 ? TIMED_DOMAIN : DOMAIN);
+        signature.update(bytes, 0, payloadLength);
+        if (!signature.verify(Arrays.copyOfRange(bytes, payloadLength, bytes.length))) {
             throw new GeneralSecurityException("密钥签名无效");
         }
+        if (checkActivationWindow) checkWindow(bytes);
         return Arrays.copyOfRange(bytes, 16, 48);
+    }
+
+    /** Recheck a token whose signature was already verified by open(). */
+    public static void ensureValidTime(String verifiedToken) throws GeneralSecurityException {
+        checkWindow(tokenBytes(verifiedToken));
+    }
+
+    private static byte[] tokenBytes(String input) throws GeneralSecurityException {
+        if (input == null || input.length() > 8192) throw new GeneralSecurityException("密钥格式错误");
+        String token = input.replaceAll("\\s", "");
+        boolean timed = token.startsWith("FA3.");
+        if (!timed && !token.startsWith(PREFIX)) throw new GeneralSecurityException("请输入 FA2 或 FA3 开头的专属密钥");
+        byte[] bytes;
+        try { bytes = Base64.getUrlDecoder().decode(token.substring(4)); }
+        catch (IllegalArgumentException error) { throw new GeneralSecurityException("密钥编码错误", error); }
+        if (bytes.length != (timed ? 352 : 336) || !encode(bytes).equals(token.substring(4))) {
+            throw new GeneralSecurityException("密钥长度或编码错误");
+        }
+        return bytes;
+    }
+
+    private static void checkWindow(byte[] bytes) throws GeneralSecurityException {
+        if (bytes.length == 336) return;
+        ByteBuffer window = ByteBuffer.wrap(bytes, 80, 16);
+        long issuedAt = window.getLong();
+        long expiresAt = window.getLong();
+        checkWindow(issuedAt, expiresAt);
+    }
+
+    private static void checkWindow(long issuedAt, long expiresAt) throws GeneralSecurityException {
+        if (issuedAt <= 0 || expiresAt <= issuedAt) throw new GeneralSecurityException("有效期无效");
+        long now = System.currentTimeMillis();
+        if (now < issuedAt) throw new GeneralSecurityException("设备时间早于文件生成时间，请校准系统时间");
+        if (now >= expiresAt) throw new GeneralSecurityException("文件已过期，到期时间 "
+                + java.text.DateFormat.getDateTimeInstance().format(new java.util.Date(expiresAt)));
     }
 
     public static byte[] encrypt(byte[] plain, byte[] key, byte[] aad) throws GeneralSecurityException {

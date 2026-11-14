@@ -54,7 +54,7 @@ final class ShellRuntime {
                         new GCMParameterSpec(128, java.util.Arrays.copyOf(sealed, 12)));
                 cipher.updateAAD(id());
                 String token = new String(cipher.doFinal(sealed, 12, sealed.length - 12), StandardCharsets.UTF_8);
-                unlockedLoader = load(token, parent);
+                unlockedLoader = load(token, parent, true);
                 activeToken = token;
                 return unlockedLoader;
             }
@@ -66,9 +66,16 @@ final class ShellRuntime {
     }
 
     static ClassLoader load(String token, ClassLoader parent) throws Exception {
+        return load(token, parent, false);
+    }
+
+    private static ClassLoader load(String token, ClassLoader parent, boolean storedActivation) throws Exception {
         PublicKey issuer = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(
                 Base64.getDecoder().decode(config.getString("publicKey"))));
-        byte[] key = ActivationKeys.open(token, id(), info.packageName, issuer);
+        ActivationKeys.Policy keyPolicy = keyPolicy();
+        byte[] key = storedActivation
+                ? ActivationKeys.openStoredActivation(token, id(), info.packageName, issuer, keyPolicy)
+                : ActivationKeys.open(token, id(), info.packageName, issuer, keyPolicy);
         JSONArray names = config.getJSONArray("dex");
         ByteBuffer[] dex = new ByteBuffer[names.length()];
         if (dex.length == 0) throw new java.io.IOException("DEX 数量无效");
@@ -110,10 +117,16 @@ final class ShellRuntime {
             }
         } finally { java.util.Arrays.fill(key, (byte) 0); }
         String libraries = info.nativeLibraryDir;
+        if (!storedActivation) ActivationKeys.ensureValidTime(token, keyPolicy);
         return new InMemoryDexClassLoader(dex, libraries, parent);
     }
 
+    static boolean isAuthorized() {
+        return unlockedLoader != null && activeToken != null;
+    }
+
     static void store(String token) throws Exception {
+        ActivationKeys.ensureValidTime(token, keyPolicy());
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.ENCRYPT_MODE, storageKey());
         byte[] iv = cipher.getIV();
@@ -152,6 +165,11 @@ final class ShellRuntime {
 
     static byte[] id() throws Exception { return Base64.getUrlDecoder().decode(config.getString("id")); }
 
+    private static ActivationKeys.Policy keyPolicy() {
+        return config.has("keySignature") ? new ActivationKeys.Policy(config.optLong("issuedAt"),
+                config.optLong("expiresAt"), config.optString("keyHash"), config.optString("keySignature")) : null;
+    }
+
     static void restoreIsolated(android.content.Intent intent, ClassLoader parent, String serviceName) throws Exception {
         if (unlockedLoader != null) return;
         android.os.Bundle extras = intent == null ? null : intent.getExtras();
@@ -167,7 +185,7 @@ final class ShellRuntime {
             }
             response.readException();
             String token = response.readString();
-            ClassLoader loaded = load(token, parent);
+            ClassLoader loaded = load(token, parent, true);
             IsolatedApplication bootstrap = IsolatedApplication.instance;
             if (bootstrap == null) throw new IllegalStateException("隔离进程 Application 未初始化");
             String className = applicationClassName == null ? "android.app.Application" : applicationClassName;
