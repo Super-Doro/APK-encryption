@@ -10,8 +10,8 @@ android {
         applicationId 'com.function.cardissuer'
         minSdk 29
         targetSdk 35
-        versionCode 17
-        versionName '3.0.12'
+        versionCode 19
+        versionName '3.0.14'
         testInstrumentationRunner 'com.function.cardissuer.CryptoDeviceTest'
     }
 

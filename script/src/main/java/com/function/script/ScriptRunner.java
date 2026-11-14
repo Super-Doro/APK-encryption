@@ -33,7 +33,9 @@ public final class ScriptRunner {
             byte[] id = Base64.getUrlDecoder().decode(config.getString("id"));
             ActivationKeys.Policy keyPolicy = config.has("keySignature") ? new ActivationKeys.Policy(
                     config.optLong("issuedAt"), config.optLong("expiresAt"),
+                    config.optLong("usageExpiresAt"),
                     config.optString("keyHash"), config.optString("keySignature")) : null;
+            ActivationKeys.ensureUsageTime(keyPolicy);
             java.security.PublicKey issuer = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(
                     Base64.getDecoder().decode(config.getString("publicKey"))));
             File directory = new File(args[2]).getCanonicalFile();
@@ -84,7 +86,7 @@ public final class ScriptRunner {
             List<String> command = new ArrayList<>(Arrays.asList("/system/bin/sh", temporary.getPath()));
             command.addAll(Arrays.asList(args).subList(3, args.length));
             ProcessBuilder builder = new ProcessBuilder(command).inheritIO();
-            exit = builder.start().waitFor();
+            exit = execute(builder, keyPolicy, directory);
         } catch (Exception error) {
             System.err.println("解密执行失败 " + error.getMessage());
             error.printStackTrace(System.err);
@@ -92,6 +94,37 @@ public final class ScriptRunner {
             if (temporary != null && !temporary.delete()) temporary.deleteOnExit();
         }
         System.exit(exit);
+    }
+
+    private static int execute(ProcessBuilder builder, ActivationKeys.Policy policy, File directory) throws Exception {
+        ActivationKeys.ensureUsageTime(policy);
+        if (policy == null || policy.usageExpiresAt == 0) return builder.start().waitFor();
+        File pidFile = File.createTempFile("session-", ".pid", directory);
+        List<String> command = new ArrayList<>(Arrays.asList("/system/bin/toybox", "setsid", "/system/bin/sh", "-c",
+                "printf '%s\\n' \"$$\" > \"$DORO_SESSION_PID\" || exit 1; exec /system/bin/sh \"$DORO_SESSION_SOURCE\" \"$@\"", "doro-launch"));
+        command.addAll(builder.command().subList(2, builder.command().size()));
+        builder.environment().put("DORO_SESSION_PID", pidFile.getPath());
+        builder.environment().put("DORO_SESSION_SOURCE", builder.command().get(1));
+        builder.command(command);
+        Process process = null;
+        boolean completed = false;
+        try {
+            process = builder.start();
+            while (!process.waitFor(1, java.util.concurrent.TimeUnit.SECONDS)) ActivationKeys.ensureUsageTime(policy);
+            ActivationKeys.ensureUsageTime(policy);
+            completed = true;
+            return process.exitValue();
+        } finally {
+            if (process != null && !completed) {
+                try {
+                    String saved = new String(Files.readAllBytes(pidFile.toPath()), StandardCharsets.US_ASCII).trim();
+                    int group = Integer.parseInt(saved);
+                    if (group > 1) android.system.Os.kill(-group, android.system.OsConstants.SIGKILL);
+                } catch (Exception error) { System.err.println("脚本进程组清理 " + error.getMessage()); }
+                process.destroyForcibly();
+            }
+            pidFile.delete();
+        }
     }
 
     private static String readKey() throws Exception {

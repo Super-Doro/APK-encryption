@@ -69,6 +69,8 @@ public final class MainActivity extends Activity {
     private TextView validityTitle;
     private TextView validityHint;
     private View validityRow;
+    private View usageRow;
+    private TextView usageValue;
     private TextView notice;
     private TextView recordCount;
     private TextView empty;
@@ -85,6 +87,7 @@ public final class MainActivity extends Activity {
     private File pendingExport;
     private int policyIndex;
     private int validHours = 24;
+    private int usageHours;
     private int currentTab;
     private boolean busy;
     private volatile String lastStage;
@@ -102,6 +105,7 @@ public final class MainActivity extends Activity {
             if (export != null) pendingExport = new File(export);
             policyIndex = Math.max(0, Math.min(2, state.getInt("isolationPolicy", 0)));
             validHours = Math.max(1, Math.min(720, state.getInt("validHours", 24)));
+            usageHours = Math.max(0, Math.min(720, state.getInt("usageHours", 0)));
             currentTab = state.getInt("tab", 0);
         }
         buildLayout();
@@ -231,7 +235,17 @@ public final class MainActivity extends Activity {
         validity.addView(validityValue);
         add(page, validity, 14);
         validityRow = validity;
-        validity.setOnClickListener(view -> { if (!busy) showValidity(); });
+        validity.setOnClickListener(view -> { if (!busy) showValidity(false); });
+        LinearLayout usage = row();
+        usage.setGravity(Gravity.CENTER_VERTICAL);
+        usage.setPadding(dp(18), dp(18), dp(18), dp(18));
+        usage.setBackground(shape(Color.WHITE, 18));
+        usage.addView(label("使用有效期", 15, INK, false), new LinearLayout.LayoutParams(0, -2, 1));
+        usageValue = label("不限  ›", 14, GRAY, false);
+        usage.addView(usageValue);
+        add(page, usage, 14);
+        usageRow = usage;
+        usage.setOnClickListener(view -> { if (!busy) showValidity(true); });
         validityHint = label("", 12, GRAY, false);
         add(page, validityHint, 10);
 
@@ -368,14 +382,15 @@ public final class MainActivity extends Activity {
         String policy = POLICY_VALUES[policyIndex];
         long issuedAt = System.currentTimeMillis();
         long expiresAt = issuedAt + validHours * 3_600_000L;
+        long usageExpiresAt = usageHours == 0 ? 0 : issuedAt + usageHours * 3_600_000L;
         setBusy(true);
         notice.setText("");
         publish("准备加密", 0);
         worker.execute(() -> {
             try {
                 ApkProtector.Result generated = name.toLowerCase(Locale.ROOT).endsWith(".sh")
-                        ? ScriptProtector.protect(this, source, name, issuedAt, expiresAt, this::publish)
-                        : ApkProtector.protect(this, source, name, policy, issuedAt, expiresAt, this::publish);
+                        ? ScriptProtector.protect(this, source, name, issuedAt, expiresAt, usageExpiresAt, this::publish)
+                        : ApkProtector.protect(this, source, name, policy, issuedAt, expiresAt, usageExpiresAt, this::publish);
                 source.delete();
                 runOnUiThread(() -> {
                     if (isDestroyed()) return;
@@ -383,6 +398,7 @@ public final class MainActivity extends Activity {
                     inputName = null;
                     policyIndex = 0;
                     validHours = 24;
+                    usageHours = 0;
                     setBusy(false);
                     reloadRecords();
                     showCompleted(generated);
@@ -427,51 +443,118 @@ public final class MainActivity extends Activity {
         sizeSheet(sheet);
     }
 
-    private void showValidity() {
-        android.widget.NumberPicker days = new android.widget.NumberPicker(this);
-        days.setMinValue(0);
-        days.setMaxValue(30);
-        days.setValue(validHours / 24);
-        days.setWrapSelectorWheel(false);
-        android.widget.NumberPicker hours = new android.widget.NumberPicker(this);
-        hours.setMinValue(0);
-        hours.setMaxValue(days.getValue() == 30 ? 0 : 23);
-        hours.setValue(validHours % 24);
-        hours.setWrapSelectorWheel(false);
-        days.setOnValueChangedListener((picker, previous, current) -> hours.setMaxValue(current == 30 ? 0 : 23));
+    private void showValidity(boolean usage) {
+        int initialHours = usage ? Math.max(1, usageHours == 0 ? 24 : usageHours) : validHours;
+        Dialog dialog = sheet();
+        ScrollView scroll = new ScrollView(this);
+        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        LinearLayout content = column();
+        content.setPadding(dp(24), dp(24), dp(24), dp(24));
+        content.setBackground(shape(Color.WHITE, 24));
+        scroll.addView(content);
+        dialog.setContentView(scroll);
+
+        LinearLayout header = row();
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(label(usage ? "使用有效期" : "激活有效期", 23, INK, true),
+                new LinearLayout.LayoutParams(0, -2, 1));
+        TextView cancel = label("取消", 15, BLUE, false);
+        cancel.setPadding(dp(16), dp(12), 0, dp(12));
+        cancel.setMinHeight(dp(48));
+        cancel.setGravity(Gravity.CENTER);
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        header.addView(cancel);
+        content.addView(header);
+        add(content, label("从开始加密起算，最长30天", 13, GRAY, false), 4);
+
+        android.widget.NumberPicker days = durationPicker(30, initialHours / 24);
+        android.widget.NumberPicker hours = durationPicker(days.getValue() == 30 ? 0 : 23, initialHours % 24);
+        hours.setEnabled(days.getValue() < 30);
+        hours.setAlpha(days.getValue() == 30 ? 0.4f : 1f);
+        days.setOnValueChangedListener((picker, previous, current) -> {
+            hours.setMaxValue(current == 30 ? 0 : 23);
+            hours.setEnabled(current < 30);
+            hours.setAlpha(current == 30 ? 0.4f : 1f);
+        });
+
+        FrameLayout pickerPanel = new FrameLayout(this);
+        pickerPanel.setBackground(shape(BACKGROUND, 18));
+        View selectedBand = new View(this);
+        selectedBand.setBackground(shape(Color.WHITE, 10));
+        FrameLayout.LayoutParams bandLayout = new FrameLayout.LayoutParams(-1, dp(44), Gravity.CENTER);
+        bandLayout.leftMargin = dp(10);
+        bandLayout.rightMargin = dp(10);
+        pickerPanel.addView(selectedBand, bandLayout);
         LinearLayout selectors = row();
-        selectors.setPadding(dp(24), dp(12), dp(24), dp(12));
-        LinearLayout dayColumn = column();
-        dayColumn.addView(label("天", 15, INK, false));
-        dayColumn.addView(days);
-        selectors.addView(dayColumn, new LinearLayout.LayoutParams(0, -2, 1));
-        LinearLayout hourColumn = column();
-        hourColumn.addView(label("小时", 15, INK, false));
-        hourColumn.addView(hours);
-        selectors.addView(hourColumn, new LinearLayout.LayoutParams(0, -2, 1));
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle(validityTitle.getText() + " · 最长30天")
-                .setView(selectors).setPositiveButton("确定", null).setNegativeButton("取消", null).create();
-        dialog.show();
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+        selectors.setGravity(Gravity.CENTER);
+        selectors.addView(durationColumn(days, "天"), new LinearLayout.LayoutParams(0, -1, 1));
+        selectors.addView(durationColumn(hours, "小时"), new LinearLayout.LayoutParams(0, -1, 1));
+        pickerPanel.addView(selectors, new FrameLayout.LayoutParams(-1, dp(180)));
+        add(content, pickerPanel, 22);
+
+        Button confirm = action("确定", true, () -> {
             days.clearFocus();
             hours.clearFocus();
             int selectedHours = days.getValue() * 24 + hours.getValue();
             if (selectedHours == 0) { toast("请设置至少1小时"); return; }
-            validHours = selectedHours;
+            if (usage) usageHours = selectedHours;
+            else validHours = selectedHours;
             refreshForm();
             dialog.dismiss();
         });
+        add(content, confirm, 24);
+        if (usage) {
+            TextView unlimited = textAction("设为不限", () -> {
+                usageHours = 0;
+                refreshForm();
+                dialog.dismiss();
+            });
+            unlimited.setTextColor(BLUE);
+            unlimited.setMinHeight(dp(48));
+            add(content, unlimited, 8);
+        }
+        dialog.show();
+        sizeSheet(dialog);
+        int width = getResources().getDisplayMetrics().widthPixels;
+        content.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int maxHeight = Math.round(getResources().getDisplayMetrics().heightPixels * 0.85f);
+        dialog.getWindow().setLayout(-1, Math.min(content.getMeasuredHeight(), maxHeight));
     }
 
-    private String durationText() {
-        int days = validHours / 24;
-        int hours = validHours % 24;
+    private android.widget.NumberPicker durationPicker(int maximum, int value) {
+        android.widget.NumberPicker picker = new android.widget.NumberPicker(this);
+        picker.setMinValue(0);
+        picker.setMaxValue(maximum);
+        picker.setValue(value);
+        picker.setWrapSelectorWheel(false);
+        picker.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        picker.setSelectionDividerHeight(0);
+        picker.setTextColor(INK);
+        picker.setTextSize(android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,
+                24, getResources().getDisplayMetrics()));
+        return picker;
+    }
+
+    private LinearLayout durationColumn(android.widget.NumberPicker picker, String unit) {
+        LinearLayout column = row();
+        column.setGravity(Gravity.CENTER);
+        column.addView(picker, new LinearLayout.LayoutParams(dp(76), dp(180)));
+        column.addView(label(unit, 15, GRAY, false));
+        return column;
+    }
+
+    private String durationText(int totalHours) {
+        int days = totalHours / 24;
+        int hours = totalHours % 24;
         return days == 0 ? hours + " 小时" : days + " 天" + (hours == 0 ? "" : " " + hours + " 小时");
     }
 
     private String expiryText(ApkProtector.Result result) {
-        return result.expiresAt == 0 ? "未设置有效期" : (result.permanentActivation ? "激活截止  " : "到期  ")
+        String activation = result.expiresAt == 0 ? "未设置激活有效期" : (result.permanentActivation ? "激活截止  " : "到期  ")
                 + DateFormat.getDateTimeInstance().format(new Date(result.expiresAt));
+        return activation + (result.usageExpiresAt == 0 ? "" : "\n使用截止  "
+                + DateFormat.getDateTimeInstance().format(new Date(result.usageExpiresAt)));
     }
 
     private void showPolicy() {
@@ -631,9 +714,12 @@ public final class MainActivity extends Activity {
         policyValue.setText(POLICY_LABELS[policyIndex]);
         policyRow.setVisibility(selected && inputName.toLowerCase(Locale.ROOT).endsWith(".apk") ? View.VISIBLE : View.GONE);
         policyRow.setAlpha(busy ? 0.55f : 1f);
-        validityValue.setText(durationText() + "  ›");
+        validityValue.setText(durationText(validHours) + "  ›");
         validityTitle.setText("激活有效期");
-        validityHint.setText("从开始加密起算，期限内激活后本机永久使用");
+        validityHint.setText(usageHours == 0 ? "从开始加密起算，期限内激活后本机长期使用"
+                : "从开始加密起算，使用期限到达后，已激活设备也会拦截");
+        usageValue.setText((usageHours == 0 ? "不限" : durationText(usageHours)) + "  ›");
+        usageRow.setAlpha(busy ? 0.55f : 1f);
         validityRow.setAlpha(busy ? 0.55f : 1f);
         start.setEnabled(selected && !busy);
         start.setAlpha(selected && !busy ? 1f : 0.38f);
@@ -754,6 +840,7 @@ public final class MainActivity extends Activity {
         if (pendingExport != null) state.putString("pendingExport", pendingExport.getPath());
         state.putInt("isolationPolicy", policyIndex);
         state.putInt("validHours", validHours);
+        state.putInt("usageHours", usageHours);
         state.putInt("tab", currentTab);
         state.putString("search", search.getText().toString());
         super.onSaveInstanceState(state);

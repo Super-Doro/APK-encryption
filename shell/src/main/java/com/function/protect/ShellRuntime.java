@@ -56,6 +56,7 @@ final class ShellRuntime {
                 String token = new String(cipher.doFinal(sealed, 12, sealed.length - 12), StandardCharsets.UTF_8);
                 unlockedLoader = load(token, parent, true);
                 activeToken = token;
+                UsageGuard.start(keyPolicy());
                 return unlockedLoader;
             }
         } catch (Exception error) {
@@ -118,11 +119,14 @@ final class ShellRuntime {
         } finally { java.util.Arrays.fill(key, (byte) 0); }
         String libraries = info.nativeLibraryDir;
         if (!storedActivation) ActivationKeys.ensureValidTime(token, keyPolicy);
+        ActivationKeys.ensureUsageTime(keyPolicy);
         return new InMemoryDexClassLoader(dex, libraries, parent);
     }
 
     static boolean isAuthorized() {
-        return unlockedLoader != null && activeToken != null;
+        if (unlockedLoader == null || activeToken == null) return false;
+        try { ActivationKeys.ensureUsageTime(keyPolicy()); return true; }
+        catch (java.security.GeneralSecurityException error) { loadError = error.getMessage(); return false; }
     }
 
     static void store(String token) throws Exception {
@@ -167,11 +171,12 @@ final class ShellRuntime {
 
     private static ActivationKeys.Policy keyPolicy() {
         return config.has("keySignature") ? new ActivationKeys.Policy(config.optLong("issuedAt"),
-                config.optLong("expiresAt"), config.optString("keyHash"), config.optString("keySignature")) : null;
+                config.optLong("expiresAt"), config.optLong("usageExpiresAt"),
+                config.optString("keyHash"), config.optString("keySignature")) : null;
     }
 
     static void restoreIsolated(android.content.Intent intent, ClassLoader parent, String serviceName) throws Exception {
-        if (unlockedLoader != null) return;
+        if (unlockedLoader != null) { ActivationKeys.ensureUsageTime(keyPolicy()); return; }
         android.os.Bundle extras = intent == null ? null : intent.getExtras();
         android.os.IBinder broker = extras == null ? null : extras.getBinder(IsolatedBindings.BROKER);
         if (broker == null) throw new SecurityException("隔离服务尚未授权，请先打开软件完成解锁");
@@ -217,6 +222,7 @@ final class ShellRuntime {
                 application.onCreate();
                 unlockedLoader = loaded;
                 activeToken = token;
+                UsageGuard.start(keyPolicy());
             } catch (Exception error) {
                 application = null;
                 unlockedLoader = null;

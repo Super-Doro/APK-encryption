@@ -29,6 +29,11 @@ final class ScriptProtector {
 
     static ApkProtector.Result protect(Context context, File source, String name, long issuedAt,
             long expiresAt, ProtectionProgress progress) throws Exception {
+        return protect(context, source, name, issuedAt, expiresAt, 0, progress);
+    }
+
+    static ApkProtector.Result protect(Context context, File source, String name, long issuedAt,
+            long expiresAt, long usageExpiresAt, ProtectionProgress progress) throws Exception {
         progress.update("准备加密脚本", 0);
         byte[] id = ActivationKeys.random(16);
         byte[] secret = ActivationKeys.random(32);
@@ -44,7 +49,7 @@ final class ScriptProtector {
             KeyPair issuer = IssuerKeyStore.loadOrCreate();
             progress.update("正在签发专属密钥", 2);
             ActivationKeys.Policy keyPolicy = expiresAt > 0 ? ActivationKeys.issueCompact(id, secret,
-                    identity, issuer.getPrivate(), issuedAt, expiresAt) : null;
+                    identity, issuer.getPrivate(), issuedAt, expiresAt, usageExpiresAt) : null;
             String token = keyPolicy == null
                     ? ActivationKeys.issue(id, secret, identity, issuer.getPrivate(), issuedAt, expiresAt)
                     : ActivationKeys.compactToken(secret);
@@ -52,6 +57,7 @@ final class ScriptProtector {
                     .put("activationPolicy", "permanent-after-activation")
                     .put("id", buildId).put("packageName", identity)
                     .put("issuedAt", issuedAt).put("expiresAt", expiresAt)
+                    .put("usageExpiresAt", usageExpiresAt)
                     .put("publicKey", Base64.getEncoder().encodeToString(issuer.getPublic().getEncoded()));
             if (keyPolicy != null) config.put("keyHash", keyPolicy.keyHash).put("keySignature", keyPolicy.signature);
             progress.update("正在读取脚本运行时", 3);
@@ -90,6 +96,7 @@ final class ScriptProtector {
             JSONObject record = new JSONObject().put("kind", "sh").put("id", buildId).put("packageName", identity)
                     .put("sourceName", name).put("createdAt", System.currentTimeMillis()).put("key", token);
             record.put("issuedAt", issuedAt).put("expiresAt", expiresAt);
+            record.put("usageExpiresAt", usageExpiresAt);
             record.put("activationPolicy", "permanent-after-activation");
             progress.update("正在保存生成记录", 97);
             Files.write(new File(directory, "result.json").toPath(), record.toString().getBytes(StandardCharsets.UTF_8));

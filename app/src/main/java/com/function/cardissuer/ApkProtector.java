@@ -54,6 +54,11 @@ final class ApkProtector {
 
     static Result protect(Context context, File source, String sourceName, String isolationPolicy,
             long issuedAt, long expiresAt, ProtectionProgress progress) throws Exception {
+        return protect(context, source, sourceName, isolationPolicy, issuedAt, expiresAt, 0, progress);
+    }
+
+    static Result protect(Context context, File source, String sourceName, String isolationPolicy,
+            long issuedAt, long expiresAt, long usageExpiresAt, ProtectionProgress progress) throws Exception {
         byte[] id = ActivationKeys.random(16);
         byte[] encryptionKey = ActivationKeys.random(32);
         String buildId = ActivationKeys.encode(id);
@@ -103,11 +108,12 @@ final class ApkProtector {
             String strategyReport = IsolationPlanner.report(isolationPolicy, isolationPlans);
             KeyPair issuer = IssuerKeyStore.loadOrCreate();
             ActivationKeys.Policy keyPolicy = expiresAt > 0 ? ActivationKeys.issueCompact(id, encryptionKey,
-                    manifest.packageName, issuer.getPrivate(), issuedAt, expiresAt) : null;
+                    manifest.packageName, issuer.getPrivate(), issuedAt, expiresAt, usageExpiresAt) : null;
             JSONObject config = new JSONObject();
             JSONObject dexSizes = new JSONObject();
             config.put("version", 4).put("dexFormat", "chunked-v1").put("dexSizes", dexSizes)
                     .put("issuedAt", issuedAt).put("expiresAt", expiresAt)
+                    .put("usageExpiresAt", usageExpiresAt)
                     .put("activationPolicy", "permanent-after-activation")
                     .put("id", buildId).put("packageName", manifest.packageName)
                     .put("launcher", manifest.launcher).put("factory", manifest.originalFactory)
@@ -197,6 +203,7 @@ final class ApkProtector {
             Arrays.fill(checked, (byte) 0);
             JSONObject record = new JSONObject().put("id", buildId).put("packageName", manifest.packageName)
                     .put("sourceName", sourceName)
+                    .put("usageExpiresAt", usageExpiresAt)
                     .put("activationPolicy", "permanent-after-activation")
                     .put("issuedAt", issuedAt).put("expiresAt", expiresAt)
                     .put("strategyReport", strategyReport)
@@ -341,6 +348,7 @@ final class ApkProtector {
         final String strategyReport;
         final String sourceName;
         final long expiresAt;
+        final long usageExpiresAt;
         final boolean permanentActivation;
         private Result(File directory, JSONObject record) throws Exception {
             script = record.optString("kind").equals("sh");
@@ -353,6 +361,7 @@ final class ApkProtector {
             strategyReport = record.optString("strategyReport", "此记录未保存隔离策略报告。");
             sourceName = record.optString("sourceName", script ? packageName.replaceFirst("^sh/", "") : packageName + ".apk");
             expiresAt = record.optLong("expiresAt", 0);
+            usageExpiresAt = record.optLong("usageExpiresAt", 0);
             permanentActivation = record.optString("activationPolicy").equals("permanent-after-activation");
         }
         static Result read(File directory) throws Exception {

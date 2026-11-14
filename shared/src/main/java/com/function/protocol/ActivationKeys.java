@@ -21,6 +21,7 @@ public final class ActivationKeys {
     private static final byte[] DOMAIN = "Function/APK-activation/v2\0".getBytes(StandardCharsets.UTF_8);
     private static final byte[] TIMED_DOMAIN = "Doro/activation/v3\0".getBytes(StandardCharsets.UTF_8);
     private static final byte[] COMPACT_DOMAIN = "Doro/compact-activation/v1\0".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] USAGE_DOMAIN = "Doro/compact-activation/v2\0".getBytes(StandardCharsets.UTF_8);
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final int CHUNK_SIZE = 1024 * 1024;
     private static final int STREAM_MAGIC = 0x46435331;
@@ -31,12 +32,18 @@ public final class ActivationKeys {
     public static final class Policy {
         public final long issuedAt;
         public final long expiresAt;
+        public final long usageExpiresAt;
         public final String keyHash;
         public final String signature;
 
         public Policy(long issuedAt, long expiresAt, String keyHash, String signature) {
+            this(issuedAt, expiresAt, 0, keyHash, signature);
+        }
+
+        public Policy(long issuedAt, long expiresAt, long usageExpiresAt, String keyHash, String signature) {
             this.issuedAt = issuedAt;
             this.expiresAt = expiresAt;
+            this.usageExpiresAt = usageExpiresAt;
             this.keyHash = keyHash;
             this.signature = signature;
         }
@@ -44,15 +51,21 @@ public final class ActivationKeys {
 
     public static Policy issueCompact(byte[] id, byte[] key, String packageName, PrivateKey issuer,
             long issuedAt, long expiresAt) throws GeneralSecurityException {
+        return issueCompact(id, key, packageName, issuer, issuedAt, expiresAt, 0);
+    }
+
+    public static Policy issueCompact(byte[] id, byte[] key, String packageName, PrivateKey issuer,
+            long issuedAt, long expiresAt, long usageExpiresAt) throws GeneralSecurityException {
         if (id.length != 16 || key.length != 32 || issuedAt <= 0 || expiresAt <= issuedAt) {
             throw new GeneralSecurityException("短密钥参数无效");
         }
         byte[] hash = MessageDigest.getInstance("SHA-256").digest(key);
         Signature signer = signature();
         signer.initSign(issuer);
-        signer.update(COMPACT_DOMAIN);
-        signer.update(compactPayload(id, packageName, issuedAt, expiresAt, hash));
-        return new Policy(issuedAt, expiresAt, Base64.getEncoder().encodeToString(hash),
+        if (usageExpiresAt != 0 && usageExpiresAt <= issuedAt) throw new GeneralSecurityException("使用期限无效");
+        signer.update(usageExpiresAt > 0 ? USAGE_DOMAIN : COMPACT_DOMAIN);
+        signer.update(compactPayload(id, packageName, issuedAt, expiresAt, usageExpiresAt, hash));
+        return new Policy(issuedAt, expiresAt, usageExpiresAt, Base64.getEncoder().encodeToString(hash),
                 Base64.getEncoder().encodeToString(signer.sign()));
     }
 
@@ -91,9 +104,10 @@ public final class ActivationKeys {
             }
             Signature verifier = signature();
             verifier.initVerify(issuer);
-            verifier.update(COMPACT_DOMAIN);
-            verifier.update(compactPayload(id, packageName, policy.issuedAt, policy.expiresAt, hash));
+            verifier.update(policy.usageExpiresAt > 0 ? USAGE_DOMAIN : COMPACT_DOMAIN);
+            verifier.update(compactPayload(id, packageName, policy.issuedAt, policy.expiresAt, policy.usageExpiresAt, hash));
             if (!verifier.verify(signed)) throw new GeneralSecurityException("短密钥授权签名无效");
+            ensureUsageTime(policy);
             if (checkActivationWindow) checkWindow(policy.issuedAt, policy.expiresAt);
             accepted = true;
             return key;
@@ -108,13 +122,26 @@ public final class ActivationKeys {
         if (token != null && token.replaceAll("\\s", "").startsWith("DK1.")) {
             if (policy == null) throw new GeneralSecurityException("缺少短密钥有效期信息");
             checkWindow(policy.issuedAt, policy.expiresAt);
+            ensureUsageTime(policy);
         } else ensureValidTime(token);
     }
 
-    private static byte[] compactPayload(byte[] id, String packageName, long issuedAt, long expiresAt, byte[] hash)
+    public static void ensureUsageTime(Policy policy) throws GeneralSecurityException {
+        if (policy == null || policy.usageExpiresAt == 0) return;
+        if (policy.usageExpiresAt <= policy.issuedAt || System.currentTimeMillis() < policy.issuedAt) {
+            throw new GeneralSecurityException("使用期限或设备时间无效，请校准系统时间");
+        }
+        if (System.currentTimeMillis() >= policy.usageExpiresAt) throw new GeneralSecurityException("使用有效期已结束，截止时间 "
+                + java.text.DateFormat.getDateTimeInstance().format(new java.util.Date(policy.usageExpiresAt)));
+    }
+
+    private static byte[] compactPayload(byte[] id, String packageName, long issuedAt, long expiresAt,
+            long usageExpiresAt, byte[] hash)
             throws GeneralSecurityException {
-        return ByteBuffer.allocate(96).put(id).put(hash).put(packageHash(packageName))
-                .putLong(issuedAt).putLong(expiresAt).array();
+        ByteBuffer payload = ByteBuffer.allocate(usageExpiresAt > 0 ? 104 : 96).put(id).put(hash)
+                .put(packageHash(packageName)).putLong(issuedAt).putLong(expiresAt);
+        if (usageExpiresAt > 0) payload.putLong(usageExpiresAt);
+        return payload.array();
     }
 
     public static byte[] random(int count) {
