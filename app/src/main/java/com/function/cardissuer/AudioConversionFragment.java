@@ -154,6 +154,7 @@ public final class AudioConversionFragment extends Fragment {
         ScrollView scroll = new ScrollView(getActivity());
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
+        scroll.setPadding(0, 0, 0, LiquidGlassNavigation.contentBottomInset(getActivity()));
         LinearLayout page = column();
         page.setPadding(dp(20), dp(22), dp(20), dp(24));
         scroll.addView(page);

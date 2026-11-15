@@ -7,9 +7,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.res.ColorStateList;
-import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
@@ -84,9 +82,7 @@ public final class MainActivity extends Activity {
     private TextView progressStage;
     private TextView progressPercent;
     private ProgressBar progressBar;
-    private TabView encryptTab;
-    private TabView convertTab;
-    private TabView logsTab;
+    private LiquidGlassNavigation navigation;
     private File inputFile;
     private String inputName;
     private File pendingExport;
@@ -122,15 +118,21 @@ public final class MainActivity extends Activity {
     }
 
     private void buildLayout() {
-        LinearLayout root = column();
+        FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(BACKGROUND);
+        root.setClipToPadding(false);
         root.setOnApplyWindowInsetsListener((view, insets) -> {
             root.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
                     insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+            boolean keyboard = android.os.Build.VERSION.SDK_INT >= 30
+                    ? insets.isVisible(android.view.WindowInsets.Type.ime()) : insets.getSystemWindowInsetBottom() > dp(150);
+            if (navigation != null) navigation.setVisibility(keyboard ? View.GONE : View.VISIBLE);
             return insets;
         });
+        LinearLayout content = column();
+        root.addView(content, new FrameLayout.LayoutParams(-1, -1));
         FrameLayout pages = new FrameLayout(this);
-        root.addView(pages, new LinearLayout.LayoutParams(-1, 0, 1));
+        content.addView(pages, new LinearLayout.LayoutParams(-1, 0, 1));
         homePage = buildHome();
         recordsPage = buildRecords();
         pages.addView(homePage, new FrameLayout.LayoutParams(-1, -1));
@@ -155,8 +157,8 @@ public final class MainActivity extends Activity {
         progressPanel.setPadding(dp(18), dp(16), dp(18), dp(16));
         progressPanel.setBackground(shape(Color.WHITE, 18));
         LinearLayout.LayoutParams progressLayout = new LinearLayout.LayoutParams(-1, -2);
-        progressLayout.setMargins(dp(20), dp(8), dp(20), dp(14));
-        root.addView(progressPanel, progressLayout);
+        progressLayout.setMargins(dp(20), dp(8), dp(20), LiquidGlassNavigation.contentBottomInset(this));
+        content.addView(progressPanel, progressLayout);
         LinearLayout progressHeader = row();
         progressStage = label("", 14, INK, true);
         progressStage.setMaxLines(2);
@@ -173,22 +175,19 @@ public final class MainActivity extends Activity {
         progressPanel.addView(progressBar, barLayout);
         progressPanel.setVisibility(View.GONE);
 
-        LinearLayout navigation = row();
-        navigation.setPadding(dp(34), dp(6), dp(34), dp(6));
-        navigation.setBackgroundColor(Color.WHITE);
-        View separator = new View(this);
-        separator.setBackgroundColor(LINE);
-        root.addView(separator, new LinearLayout.LayoutParams(-1, dp(1)));
-        root.addView(navigation, new LinearLayout.LayoutParams(-1, dp(66)));
-        encryptTab = new TabView("加密", 0);
-        convertTab = new TabView("转换", 1);
-        logsTab = new TabView("日志", 2);
-        navigation.addView(encryptTab, new LinearLayout.LayoutParams(0, -1, 1));
-        navigation.addView(convertTab, new LinearLayout.LayoutParams(0, -1, 1));
-        navigation.addView(logsTab, new LinearLayout.LayoutParams(0, -1, 1));
-        encryptTab.setOnClickListener(view -> setTab(0));
-        convertTab.setOnClickListener(view -> setTab(1));
-        logsTab.setOnClickListener(view -> openLogs());
+        navigation = new LiquidGlassNavigation(this);
+        navigation.setBackdropSource(content);
+        navigation.setOnTabSelectedListener(index -> setTab(index == 2 ? 3 : index));
+        FrameLayout.LayoutParams dock = new FrameLayout.LayoutParams(-1, navigation.preferredHeight(),
+                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        dock.setMargins(dp(18), 0, dp(18), dp(12));
+        root.addView(navigation, dock);
+        root.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            int available = root.getWidth() - root.getPaddingLeft() - root.getPaddingRight() - dp(36);
+            int width = Math.max(1, Math.min(dp(380), available));
+            FrameLayout.LayoutParams layout = (FrameLayout.LayoutParams) navigation.getLayoutParams();
+            if (layout.width != width) { layout.width = width; navigation.setLayoutParams(layout); }
+        });
         setContentView(root);
     }
 
@@ -196,6 +195,7 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
+        scroll.setPadding(0, 0, 0, LiquidGlassNavigation.contentBottomInset(this));
         LinearLayout page = column();
         page.setPadding(dp(20), dp(22), dp(20), dp(24));
         scroll.addView(page);
@@ -319,7 +319,7 @@ public final class MainActivity extends Activity {
         ListView list = new ListView(this);
         list.setDivider(null);
         list.setClipToPadding(false);
-        list.setPadding(0, 0, 0, dp(12));
+        list.setPadding(0, 0, 0, dp(12) + LiquidGlassNavigation.contentBottomInset(this));
         list.setAdapter(adapter);
         listFrame.addView(list, new FrameLayout.LayoutParams(-1, -1));
         empty = label("还没有加密记录", 15, GRAY, false);
@@ -335,9 +335,7 @@ public final class MainActivity extends Activity {
         audioPage.setVisibility(currentTab == 1 ? View.VISIBLE : View.GONE);
         recordsPage.setVisibility(currentTab == 2 ? View.VISIBLE : View.GONE);
         logsPage.setVisibility(currentTab == 3 ? View.VISIBLE : View.GONE);
-        encryptTab.select(currentTab == 0 || currentTab == 2);
-        convertTab.select(currentTab == 1);
-        logsTab.select(currentTab == 3);
+        navigation.select(currentTab == 3 ? 2 : currentTab == 1 ? 1 : 0);
         AppLog.event(this, "导航", "切换页面", new String[]{"加密", "转换", "记录", "日志"}[currentTab]);
         if (currentTab == 3) {
             LogsFragment logs = (LogsFragment) getFragmentManager().findFragmentByTag("app-logs");
@@ -970,58 +968,4 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private final class TabView extends LinearLayout {
-        final TextView title;
-        final TabIcon icon;
-        TabView(String text, int iconType) {
-            super(MainActivity.this);
-            setOrientation(VERTICAL);
-            setGravity(Gravity.CENTER);
-            icon = new TabIcon(iconType);
-            addView(icon, new LinearLayout.LayoutParams(dp(24), dp(25)));
-            title = label(text, 11, GRAY, false);
-            LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(-2, -2);
-            layout.topMargin = dp(3);
-            addView(title, layout);
-            setContentDescription(text);
-        }
-        void select(boolean selected) {
-            title.setTextColor(selected ? BLUE : GRAY);
-            icon.color = selected ? BLUE : GRAY;
-            icon.invalidate();
-            setSelected(selected);
-        }
-    }
-    private final class TabIcon extends View {
-        final int iconType;
-        final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        int color = GRAY;
-        TabIcon(int iconType) { super(MainActivity.this); this.iconType = iconType; }
-        @Override protected void onDraw(Canvas canvas) {
-            canvas.save();
-            canvas.scale(getWidth() / 24f, getHeight() / 25f);
-            paint.setColor(color);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(1.8f);
-            paint.setStrokeCap(Paint.Cap.ROUND);
-            if (iconType == 2) {
-                canvas.drawRoundRect(5, 2, 20, 23, 3, 3, paint);
-                canvas.drawLine(9, 8, 16, 8, paint);
-                canvas.drawLine(9, 13, 16, 13, paint);
-                canvas.drawLine(9, 18, 14, 18, paint);
-            } else if (iconType == 1) {
-                canvas.drawLine(4, 8, 20, 8, paint);
-                canvas.drawLine(16, 4, 20, 8, paint);
-                canvas.drawLine(16, 12, 20, 8, paint);
-                canvas.drawLine(20, 18, 4, 18, paint);
-                canvas.drawLine(8, 14, 4, 18, paint);
-                canvas.drawLine(8, 22, 4, 18, paint);
-            } else {
-                canvas.drawRoundRect(5, 10, 19, 22, 3, 3, paint);
-                canvas.drawArc(8, 2.5f, 16, 15, 180, 180, false, paint);
-                canvas.drawLine(12, 15, 12, 17.5f, paint);
-            }
-            canvas.restore();
-        }
-    }
 }

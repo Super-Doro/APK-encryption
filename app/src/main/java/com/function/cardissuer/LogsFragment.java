@@ -87,7 +87,7 @@ public final class LogsFragment extends Fragment {
         ListView list = new ListView(getActivity());
         list.setDivider(null);
         list.setClipToPadding(false);
-        list.setPadding(0, 0, 0, dp(16));
+        list.setPadding(0, 0, 0, dp(16) + LiquidGlassNavigation.contentBottomInset(getActivity()));
         list.setAdapter(adapter);
         list.setOnItemClickListener((parent, view, position, id) -> showLog(filtered.get(position)));
         frame.addView(list, new FrameLayout.LayoutParams(-1, -1));
