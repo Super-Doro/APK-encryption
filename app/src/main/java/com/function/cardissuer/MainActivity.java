@@ -861,7 +861,6 @@ public final class MainActivity extends Activity {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(color);
         drawable.setCornerRadius(dp(radius));
-        if (color == Color.WHITE) drawable.setStroke(Math.max(1, dp(1) / 2), Color.rgb(235, 235, 240));
         return drawable;
     }
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
