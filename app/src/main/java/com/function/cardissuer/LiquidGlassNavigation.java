@@ -310,7 +310,7 @@ final class LiquidGlassNavigation extends FrameLayout {
             if (snapshot == null || snapshot.getWidth() != width || snapshot.getHeight() != height) {
                 snapshot = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
             }
-            snapshot.eraseColor(Color.rgb(242, 242, 247));
+            snapshot.eraseColor(Color.WHITE);
             int[] source = new int[2];
             int[] destination = new int[2];
             backdropSource.getLocationInWindow(source);
@@ -381,14 +381,14 @@ final class LiquidGlassNavigation extends FrameLayout {
 
         @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
             tint = new LinearGradient(0, 0, 0, height,
-                    new int[]{Color.argb(195, 255, 255, 255), Color.argb(155, 250, 252, 255),
-                            Color.argb(182, 245, 248, 252)}, null, Shader.TileMode.CLAMP);
+                    new int[]{Color.argb(215, 255, 255, 255), Color.argb(185, 255, 255, 255),
+                            Color.argb(205, 255, 255, 255)}, null, Shader.TileMode.CLAMP);
             rim = new LinearGradient(0, 0, width, height,
                     new int[]{Color.WHITE, Color.argb(135, 255, 255, 255), Color.argb(38, 75, 95, 125),
                             Color.argb(210, 255, 255, 255)}, new float[]{0, 0.4f, 0.8f, 1}, Shader.TileMode.CLAMP);
             lensTint = new LinearGradient(0, dp(6), 0, height - dp(6),
-                    new int[]{Color.argb(238, 255, 255, 255), Color.argb(180, 232, 242, 255),
-                            Color.argb(125, 215, 229, 248)}, null, Shader.TileMode.CLAMP);
+                    new int[]{Color.argb(248, 255, 255, 255), Color.argb(225, 250, 250, 250),
+                            Color.argb(185, 245, 245, 245)}, null, Shader.TileMode.CLAMP);
         }
 
         @Override protected void onDraw(Canvas canvas) {
@@ -405,7 +405,7 @@ final class LiquidGlassNavigation extends FrameLayout {
             lens.set(center - halfWidth, getHeight() / 2f - halfHeight,
                     center + halfWidth, getHeight() / 2f + halfHeight);
             paint.setShader(null);
-            paint.setColor(Color.argb(20, 50, 96, 160));
+            paint.setColor(Color.argb(18, 90, 90, 95));
             canvas.drawRoundRect(lens.left, lens.top + dp(2), lens.right, lens.bottom + dp(2), halfHeight, halfHeight, paint);
             paint.setShader(lensTint);
             canvas.drawRoundRect(lens, halfHeight, halfHeight, paint);

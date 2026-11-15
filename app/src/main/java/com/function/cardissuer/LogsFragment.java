@@ -8,7 +8,6 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.LayoutInflater;
@@ -54,21 +53,21 @@ public final class LogsFragment extends Fragment {
 
     @Override public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle state) {
         LinearLayout page = column();
-        page.setBackgroundColor(Color.rgb(242, 242, 247));
+        page.setBackgroundColor(Color.WHITE);
         LinearLayout header = new LinearLayout(getActivity());
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(20), dp(22), dp(20), dp(8));
-        header.addView(label("日志", 34, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
+        header.setPadding(dp(24), dp(24), dp(24), dp(8));
+        header.addView(label("日志", 32, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
         TextView clear = label("清空", 15, BLUE, false);
         clear.setPadding(dp(16), dp(12), 0, dp(12));
         clear.setOnClickListener(view -> confirmClear());
         header.addView(clear);
         page.addView(header);
         count = label("正在读取日志", 12, GRAY, false);
-        count.setPadding(dp(20), 0, dp(20), dp(16));
+        count.setPadding(dp(24), 0, dp(24), dp(16));
         page.addView(count);
         LinearLayout filters = new LinearLayout(getActivity());
-        filters.setPadding(dp(20), 0, dp(20), dp(14));
+        filters.setPadding(dp(24), 0, dp(24), dp(6));
         filterButtons.clear();
         for (int i = 0; i < FILTERS.length; i++) {
             int choice = i;
@@ -132,8 +131,9 @@ public final class LogsFragment extends Fragment {
         for (int i = 0; i < filterButtons.size(); i++) {
             TextView button = filterButtons.get(i);
             boolean selected = i == filter;
-            button.setTextColor(selected ? Color.WHITE : BLUE);
-            button.setBackground(shape(selected ? BLUE : Color.WHITE, 12));
+            button.setTextColor(selected ? BLUE : GRAY);
+            button.setTypeface(Typeface.DEFAULT, selected ? Typeface.BOLD : Typeface.NORMAL);
+            button.setBackground(selected ? new FlatDividerDrawable(getActivity(), BLUE, 2) : null);
         }
         empty.setText(filter == 0 ? "暂无日志" : "暂无" + FILTERS[filter] + "日志");
         adapter.notifyDataSetChanged();
@@ -206,12 +206,6 @@ public final class LogsFragment extends Fragment {
         if (bold) view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         return view;
     }
-    private GradientDrawable shape(int color, int radius) {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(color);
-        drawable.setCornerRadius(dp(radius));
-        return drawable;
-    }
     private int dp(int value) { return Math.round(value * app.getResources().getDisplayMetrics().density); }
 
     private final class LogAdapter extends BaseAdapter {
@@ -222,20 +216,20 @@ public final class LogsFragment extends Fragment {
             LinearLayout outer;
             if (recycled == null) {
                 outer = column();
-                outer.setPadding(dp(20), dp(6), dp(20), dp(6));
-                LinearLayout card = column();
-                card.setPadding(dp(18), dp(18), dp(18), dp(18));
-                card.setBackground(shape(Color.WHITE, 18));
-                card.addView(label("", 16, INK, true));
+                outer.setPadding(dp(24), 0, dp(24), 0);
+                LinearLayout content = column();
+                content.setPadding(0, dp(20), 0, dp(20));
+                content.setBackground(new FlatDividerDrawable(getActivity()));
+                content.addView(label("", 16, INK, true));
                 TextView subtitle = label("", 12, GRAY, false);
                 subtitle.setPadding(0, dp(8), 0, 0);
-                card.addView(subtitle);
-                outer.addView(card);
+                content.addView(subtitle);
+                outer.addView(content);
             } else outer = (LinearLayout) recycled;
-            LinearLayout card = (LinearLayout) outer.getChildAt(0);
+            LinearLayout content = (LinearLayout) outer.getChildAt(0);
             ErrorLogStore.Entry entry = getItem(position);
-            ((TextView) card.getChildAt(0)).setText(entry.title);
-            ((TextView) card.getChildAt(1)).setText(entry.kind + " · "
+            ((TextView) content.getChildAt(0)).setText(entry.title);
+            ((TextView) content.getChildAt(1)).setText(entry.kind + " · "
                     + DateFormat.getDateTimeInstance().format(new Date(entry.createdAt)));
             return outer;
         }

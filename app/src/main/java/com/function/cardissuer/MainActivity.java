@@ -49,7 +49,7 @@ public final class MainActivity extends Activity {
     private static final int BLUE = Color.rgb(0, 122, 255);
     private static final int INK = Color.rgb(28, 28, 30);
     private static final int GRAY = Color.rgb(142, 142, 147);
-    private static final int BACKGROUND = Color.rgb(242, 242, 247);
+    private static final int BACKGROUND = Color.WHITE;
     private static final int LINE = Color.rgb(229, 229, 234);
     private static final String[] POLICY_LABELS = {"自动分析", "保留原初始化", "基础初始化"};
     private static final String[] POLICY_VALUES = {IsolationPlanner.AUTO, IsolationPlanner.ORIGINAL, IsolationPlanner.MINIMAL};
@@ -154,10 +154,10 @@ public final class MainActivity extends Activity {
         }
 
         progressPanel = column();
-        progressPanel.setPadding(dp(18), dp(16), dp(18), dp(16));
-        progressPanel.setBackground(shape(Color.WHITE, 18));
+        progressPanel.setPadding(0, dp(16), 0, dp(16));
+        progressPanel.setBackgroundColor(Color.WHITE);
         LinearLayout.LayoutParams progressLayout = new LinearLayout.LayoutParams(-1, -2);
-        progressLayout.setMargins(dp(20), dp(8), dp(20), LiquidGlassNavigation.contentBottomInset(this));
+        progressLayout.setMargins(dp(24), dp(8), dp(24), LiquidGlassNavigation.contentBottomInset(this));
         content.addView(progressPanel, progressLayout);
         LinearLayout progressHeader = row();
         progressStage = label("", 14, INK, true);
@@ -197,11 +197,11 @@ public final class MainActivity extends Activity {
         scroll.setClipToPadding(false);
         scroll.setPadding(0, 0, 0, LiquidGlassNavigation.contentBottomInset(this));
         LinearLayout page = column();
-        page.setPadding(dp(20), dp(22), dp(20), dp(24));
+        page.setPadding(dp(24), dp(24), dp(24), dp(24));
         scroll.addView(page);
         LinearLayout heading = row();
         heading.setGravity(Gravity.CENTER_VERTICAL);
-        heading.addView(label("Doro加密", 34, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
+        heading.addView(label("Doro加密", 32, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
         TextView history = label("记录", 15, BLUE, false);
         history.setPadding(dp(14), dp(12), 0, dp(12));
         history.setOnClickListener(view -> { reloadRecords(); setTab(2); });
@@ -211,16 +211,15 @@ public final class MainActivity extends Activity {
 
         LinearLayout file = row();
         file.setGravity(Gravity.CENTER_VERTICAL);
-        file.setPadding(dp(18), dp(24), dp(18), dp(24));
-        file.setBackground(shape(Color.WHITE, 20));
-        add(page, file, 30);
+        file.setPadding(0, dp(22), 0, dp(22));
+        file.setBackground(new FlatDividerDrawable(this));
+        add(page, file, 28);
         TextView document = label("↑", 25, BLUE, false);
         document.setGravity(Gravity.CENTER);
-        document.setBackground(shape(Color.rgb(238, 245, 255), 13));
-        file.addView(document, new LinearLayout.LayoutParams(dp(46), dp(52)));
+        file.addView(document, new LinearLayout.LayoutParams(dp(28), dp(40)));
         LinearLayout fileText = column();
         LinearLayout.LayoutParams fileTextLayout = new LinearLayout.LayoutParams(0, -2, 1);
-        fileTextLayout.leftMargin = dp(14);
+        fileTextLayout.leftMargin = dp(12);
         file.addView(fileText, fileTextLayout);
         fileName = label("添加文件", 17, INK, true);
         fileName.setMaxLines(2);
@@ -236,37 +235,37 @@ public final class MainActivity extends Activity {
 
         LinearLayout policy = row();
         policy.setGravity(Gravity.CENTER_VERTICAL);
-        policy.setPadding(dp(18), dp(18), dp(18), dp(18));
-        policy.setBackground(shape(Color.WHITE, 18));
+        policy.setPadding(0, dp(20), 0, dp(20));
+        policy.setBackground(new FlatDividerDrawable(this));
         policy.addView(label("隔离服务策略", 15, INK, false), new LinearLayout.LayoutParams(0, -2, 1));
         policyValue = label("自动分析", 14, GRAY, false);
         policy.addView(policyValue);
         TextView arrow = label("›", 25, GRAY, false);
         arrow.setPadding(dp(10), 0, 0, 0);
         policy.addView(arrow);
-        add(page, policy, 14);
+        add(page, policy, 0);
         policyRow = policy;
         policy.setOnClickListener(view -> { if (!busy) showPolicy(); });
 
         LinearLayout validity = row();
         validity.setGravity(Gravity.CENTER_VERTICAL);
-        validity.setPadding(dp(18), dp(18), dp(18), dp(18));
-        validity.setBackground(shape(Color.WHITE, 18));
+        validity.setPadding(0, dp(20), 0, dp(20));
+        validity.setBackground(new FlatDividerDrawable(this));
         validityTitle = label("有效期", 15, INK, false);
         validity.addView(validityTitle, new LinearLayout.LayoutParams(0, -2, 1));
         validityValue = label("1 天  ›", 14, GRAY, false);
         validity.addView(validityValue);
-        add(page, validity, 14);
+        add(page, validity, 0);
         validityRow = validity;
         validity.setOnClickListener(view -> { if (!busy) showValidity(false); });
         LinearLayout usage = row();
         usage.setGravity(Gravity.CENTER_VERTICAL);
-        usage.setPadding(dp(18), dp(18), dp(18), dp(18));
-        usage.setBackground(shape(Color.WHITE, 18));
+        usage.setPadding(0, dp(20), 0, dp(20));
+        usage.setBackground(new FlatDividerDrawable(this));
         usage.addView(label("使用有效期", 15, INK, false), new LinearLayout.LayoutParams(0, -2, 1));
         usageValue = label("不限  ›", 14, GRAY, false);
         usage.addView(usageValue);
-        add(page, usage, 14);
+        add(page, usage, 0);
         usageRow = usage;
         usage.setOnClickListener(view -> { if (!busy) showValidity(true); });
         validityHint = label("", 12, GRAY, false);
@@ -287,8 +286,8 @@ public final class MainActivity extends Activity {
         LinearLayout page = column();
         LinearLayout heading = row();
         heading.setGravity(Gravity.CENTER_VERTICAL);
-        heading.setPadding(dp(20), dp(22), dp(20), 0);
-        heading.addView(label("记录", 34, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
+        heading.setPadding(dp(24), dp(24), dp(24), 0);
+        heading.addView(label("记录", 32, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
         recordCount = label("0 项", 13, GRAY, false);
         heading.addView(recordCount);
         TextView back = label("返回", 15, BLUE, false);
@@ -304,10 +303,10 @@ public final class MainActivity extends Activity {
         search.setHintTextColor(GRAY);
         search.setHint("搜索应用标识、文件名或生成编号");
         search.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        search.setPadding(dp(15), 0, dp(15), 0);
-        search.setBackground(shape(Color.WHITE, 12));
+        search.setPadding(0, 0, 0, 0);
+        search.setBackground(new FlatDividerDrawable(this));
         LinearLayout.LayoutParams searchLayout = new LinearLayout.LayoutParams(-1, dp(46));
-        searchLayout.setMargins(dp(20), dp(22), dp(20), dp(12));
+        searchLayout.setMargins(dp(24), dp(18), dp(24), dp(4));
         page.addView(search, searchLayout);
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence text, int offset, int count, int after) {}
@@ -526,13 +525,7 @@ public final class MainActivity extends Activity {
         });
 
         FrameLayout pickerPanel = new FrameLayout(this);
-        pickerPanel.setBackground(shape(BACKGROUND, 18));
-        View selectedBand = new View(this);
-        selectedBand.setBackground(shape(Color.WHITE, 10));
-        FrameLayout.LayoutParams bandLayout = new FrameLayout.LayoutParams(-1, dp(44), Gravity.CENTER);
-        bandLayout.leftMargin = dp(10);
-        bandLayout.rightMargin = dp(10);
-        pickerPanel.addView(selectedBand, bandLayout);
+        pickerPanel.setBackgroundColor(Color.WHITE);
         LinearLayout selectors = row();
         selectors.setGravity(Gravity.CENTER);
         selectors.addView(durationColumn(days, "天"), new LinearLayout.LayoutParams(0, -1, 1));
@@ -577,7 +570,7 @@ public final class MainActivity extends Activity {
         picker.setValue(value);
         picker.setWrapSelectorWheel(false);
         picker.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
-        picker.setSelectionDividerHeight(0);
+        picker.setSelectionDividerHeight(dp(1));
         picker.setTextColor(INK);
         picker.setTextSize(android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,
                 24, getResources().getDisplayMetrics()));
@@ -842,7 +835,7 @@ public final class MainActivity extends Activity {
         button.setTypeface(Typeface.DEFAULT, primary ? Typeface.BOLD : Typeface.NORMAL);
         button.setTextColor(primary ? Color.WHITE : BLUE);
         button.setBackgroundTintList(null);
-        button.setBackground(shape(primary ? BLUE : Color.rgb(238, 245, 255), 14));
+        button.setBackground(primary ? shape(BLUE, 27) : null);
         button.setMinHeight(dp(54));
         button.setPadding(dp(12), dp(12), dp(12), dp(12));
         button.setElevation(0);
@@ -920,7 +913,7 @@ public final class MainActivity extends Activity {
     private final class RecordRow {
         final LinearLayout outer = column();
         final TextView name = label("", 16, INK, true);
-        final TextView identity = label("", 13, INK, false);
+        final TextView identity = label("", 13, GRAY, false);
         final TextView details = label("", 12, GRAY, false);
         final TextView keyPreview = label("", 12, GRAY, false);
         final TextView copy = label("复制密钥", 14, BLUE, false);
@@ -929,20 +922,20 @@ public final class MainActivity extends Activity {
         final TextView delete = label("删除", 14, Color.rgb(215, 55, 55), false);
         ApkProtector.Result record;
         RecordRow() {
-            outer.setPadding(dp(20), dp(7), dp(20), dp(7));
-            LinearLayout card = column();
-            card.setPadding(dp(18), dp(18), dp(18), dp(10));
-            card.setBackground(shape(Color.WHITE, 18));
-            outer.addView(card);
+            outer.setPadding(dp(24), 0, dp(24), 0);
+            LinearLayout content = column();
+            content.setPadding(0, dp(22), 0, dp(12));
+            content.setBackground(new FlatDividerDrawable(MainActivity.this));
+            outer.addView(content);
             name.setMaxLines(1);
             name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            card.addView(name);
-            add(card, identity, 8);
-            add(card, details, 6);
+            content.addView(name);
+            add(content, identity, 8);
+            add(content, details, 6);
             keyPreview.setTypeface(Typeface.MONOSPACE);
             keyPreview.setMaxLines(2);
             keyPreview.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            add(card, keyPreview, 14);
+            add(content, keyPreview, 14);
             LinearLayout actions = row();
             actions.setGravity(Gravity.CENTER_VERTICAL);
             for (TextView item : new TextView[]{copy, export, exportKey, delete}) {
@@ -951,7 +944,7 @@ public final class MainActivity extends Activity {
                 item.setPadding(0, dp(14), 0, dp(8));
                 actions.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
             }
-            add(card, actions, 4);
+            add(content, actions, 4);
             copy.setOnClickListener(view -> copyKey(record));
             export.setOnClickListener(view -> exportFile(record));
             exportKey.setOnClickListener(view -> MainActivity.this.exportKey(record));

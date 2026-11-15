@@ -9,6 +9,7 @@ public final class ErrorLogsActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(android.graphics.Color.WHITE);
         root.setId(0x00d07003);
         root.setOnApplyWindowInsetsListener((view, insets) -> {
             view.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
