@@ -46,6 +46,7 @@ import java.util.concurrent.Executors;
 public final class MainActivity extends Activity {
     private static final int SELECT = 10;
     private static final int EXPORT = 11;
+    private static final int AUDIO_CONTAINER = 0x00d07001;
     private static final int BLUE = Color.rgb(0, 122, 255);
     private static final int INK = Color.rgb(28, 28, 30);
     private static final int GRAY = Color.rgb(142, 142, 147);
@@ -59,6 +60,7 @@ public final class MainActivity extends Activity {
     private final RecordAdapter adapter = new RecordAdapter();
     private View homePage;
     private View recordsPage;
+    private View audioPage;
     private View fileRow;
     private View policyRow;
     private TextView fileName;
@@ -81,7 +83,7 @@ public final class MainActivity extends Activity {
     private TextView progressPercent;
     private ProgressBar progressBar;
     private TabView encryptTab;
-    private TabView recordsTab;
+    private TabView convertTab;
     private File inputFile;
     private String inputName;
     private File pendingExport;
@@ -130,6 +132,14 @@ public final class MainActivity extends Activity {
         recordsPage = buildRecords();
         pages.addView(homePage, new FrameLayout.LayoutParams(-1, -1));
         pages.addView(recordsPage, new FrameLayout.LayoutParams(-1, -1));
+        FrameLayout audio = new FrameLayout(this);
+        audio.setId(AUDIO_CONTAINER);
+        audioPage = audio;
+        pages.addView(audio, new FrameLayout.LayoutParams(-1, -1));
+        if (getFragmentManager().findFragmentByTag("audio-conversion") == null) {
+            getFragmentManager().beginTransaction()
+                    .add(AUDIO_CONTAINER, new AudioConversionFragment(), "audio-conversion").commit();
+        }
 
         progressPanel = column();
         progressPanel.setPadding(dp(18), dp(16), dp(18), dp(16));
@@ -161,11 +171,11 @@ public final class MainActivity extends Activity {
         root.addView(separator, new LinearLayout.LayoutParams(-1, dp(1)));
         root.addView(navigation, new LinearLayout.LayoutParams(-1, dp(66)));
         encryptTab = new TabView("加密", false);
-        recordsTab = new TabView("记录", true);
+        convertTab = new TabView("转换", true);
         navigation.addView(encryptTab, new LinearLayout.LayoutParams(0, -1, 1));
-        navigation.addView(recordsTab, new LinearLayout.LayoutParams(0, -1, 1));
+        navigation.addView(convertTab, new LinearLayout.LayoutParams(0, -1, 1));
         encryptTab.setOnClickListener(view -> setTab(0));
-        recordsTab.setOnClickListener(view -> setTab(1));
+        convertTab.setOnClickListener(view -> setTab(1));
         setContentView(root);
     }
 
@@ -183,6 +193,10 @@ public final class MainActivity extends Activity {
         logs.setPadding(dp(16), dp(12), 0, dp(12));
         logs.setOnClickListener(view -> openLogs());
         heading.addView(logs);
+        TextView history = label("记录", 15, BLUE, false);
+        history.setPadding(dp(14), dp(12), 0, dp(12));
+        history.setOnClickListener(view -> { reloadRecords(); setTab(2); });
+        heading.addView(history);
         add(page, heading, 0);
         add(page, label("每份文件使用独立密钥 · v" + versionName(), 14, GRAY, false), 8);
 
@@ -268,6 +282,10 @@ public final class MainActivity extends Activity {
         heading.addView(label("记录", 34, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
         recordCount = label("0 项", 13, GRAY, false);
         heading.addView(recordCount);
+        TextView back = label("返回", 15, BLUE, false);
+        back.setPadding(dp(16), dp(12), 0, dp(12));
+        back.setOnClickListener(view -> setTab(0));
+        heading.addView(back);
         page.addView(heading);
         search = new EditText(this);
         search.setId(View.generateViewId());
@@ -303,15 +321,21 @@ public final class MainActivity extends Activity {
     }
 
     private void setTab(int tab) {
-        currentTab = tab == 1 ? 1 : 0;
+        currentTab = Math.max(0, Math.min(2, tab));
         homePage.setVisibility(currentTab == 0 ? View.VISIBLE : View.GONE);
-        recordsPage.setVisibility(currentTab == 1 ? View.VISIBLE : View.GONE);
-        encryptTab.select(currentTab == 0);
-        recordsTab.select(currentTab == 1);
-        if (currentTab == 0) {
+        audioPage.setVisibility(currentTab == 1 ? View.VISIBLE : View.GONE);
+        recordsPage.setVisibility(currentTab == 2 ? View.VISIBLE : View.GONE);
+        encryptTab.select(currentTab != 1);
+        convertTab.select(currentTab == 1);
+        if (currentTab != 2) {
             ((android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
                     .hideSoftInputFromWindow(search.getWindowToken(), 0);
         }
+    }
+
+    @Override public void onBackPressed() {
+        if (currentTab != 0) setTab(0);
+        else super.onBackPressed();
     }
 
     private void selectFile() {
@@ -435,7 +459,7 @@ public final class MainActivity extends Activity {
         add(content, action("复制密钥", false, () -> copyKey(result)), 10);
         add(content, action("查看记录", false, () -> {
             sheet.dismiss();
-            setTab(1);
+            setTab(2);
             search.setText(result.id);
         }), 8);
         add(content, textAction("完成", sheet::dismiss), 10);
@@ -917,11 +941,11 @@ public final class MainActivity extends Activity {
     private final class TabView extends LinearLayout {
         final TextView title;
         final TabIcon icon;
-        TabView(String text, boolean history) {
+        TabView(String text, boolean conversion) {
             super(MainActivity.this);
             setOrientation(VERTICAL);
             setGravity(Gravity.CENTER);
-            icon = new TabIcon(history);
+            icon = new TabIcon(conversion);
             addView(icon, new LinearLayout.LayoutParams(dp(24), dp(25)));
             title = label(text, 11, GRAY, false);
             LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(-2, -2);
@@ -937,10 +961,10 @@ public final class MainActivity extends Activity {
         }
     }
     private final class TabIcon extends View {
-        final boolean history;
+        final boolean conversion;
         final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         int color = GRAY;
-        TabIcon(boolean history) { super(MainActivity.this); this.history = history; }
+        TabIcon(boolean conversion) { super(MainActivity.this); this.conversion = conversion; }
         @Override protected void onDraw(Canvas canvas) {
             canvas.save();
             canvas.scale(getWidth() / 24f, getHeight() / 25f);
@@ -948,10 +972,13 @@ public final class MainActivity extends Activity {
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(1.8f);
             paint.setStrokeCap(Paint.Cap.ROUND);
-            if (history) {
-                canvas.drawCircle(12, 12.5f, 9, paint);
-                canvas.drawLine(12, 7, 12, 12.5f, paint);
-                canvas.drawLine(12, 12.5f, 16, 15, paint);
+            if (conversion) {
+                canvas.drawLine(4, 8, 20, 8, paint);
+                canvas.drawLine(16, 4, 20, 8, paint);
+                canvas.drawLine(16, 12, 20, 8, paint);
+                canvas.drawLine(20, 18, 4, 18, paint);
+                canvas.drawLine(8, 14, 4, 18, paint);
+                canvas.drawLine(8, 22, 4, 18, paint);
             } else {
                 canvas.drawRoundRect(5, 10, 19, 22, 3, 3, paint);
                 canvas.drawArc(8, 2.5f, 16, 15, 180, 180, false, paint);

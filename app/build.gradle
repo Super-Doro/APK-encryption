@@ -10,8 +10,8 @@ android {
         applicationId 'com.function.cardissuer'
         minSdk 29
         targetSdk 35
-        versionCode 19
-        versionName '3.0.14'
+        versionCode 20
+        versionName '3.1.0'
         testInstrumentationRunner 'com.function.cardissuer.CryptoDeviceTest'
     }
 
@@ -36,6 +36,7 @@ dependencies {
     implementation 'com.android.tools.build:apksig:8.9.2'
     implementation 'org.smali:dexlib2:2.5.2'
     implementation 'com.google.guava:guava:27.1-android'
+    implementation 'dev.ffmpegkit-maintained:ffmpeg-kit-audio:8.1.9'
 }
 
 tasks.register('prepareShell', Copy) {
