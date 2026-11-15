@@ -2,17 +2,20 @@ package com.function.cardissuer;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.app.Fragment;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.widget.BaseAdapter;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -36,14 +39,16 @@ public final class LogsFragment extends Fragment {
     private final List<ErrorLogStore.Entry> entries = new ArrayList<>();
     private final List<ErrorLogStore.Entry> filtered = new ArrayList<>();
     private final LogAdapter adapter = new LogAdapter();
-    private final List<TextView> filterButtons = new ArrayList<>();
+    private LiquidGlassNavigation filters;
     private final Runnable listener = this::refresh;
     private Context app;
     private TextView count;
+    private TextView captureStatus;
     private TextView empty;
     private int filter;
     private boolean loading;
     private boolean destroyed;
+    private Dialog logDialog;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -56,37 +61,28 @@ public final class LogsFragment extends Fragment {
         page.setBackgroundColor(Color.WHITE);
         LinearLayout header = new LinearLayout(getActivity());
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(24), dp(24), dp(24), dp(8));
-        header.addView(label("日志", 32, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
+        header.setPadding(dp(24), dp(20), dp(24), dp(8));
+        header.addView(label("日志", 30, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
         TextView clear = label("清空", 15, BLUE, false);
         clear.setPadding(dp(16), dp(12), 0, dp(12));
         clear.setOnClickListener(view -> confirmClear());
         header.addView(clear);
         page.addView(header);
-        count = label("正在读取日志", 12, GRAY, false);
-        count.setPadding(dp(24), 0, dp(24), dp(16));
+        count = label("正在读取日志", 13, GRAY, false);
+        count.setPadding(dp(24), 0, dp(24), dp(4));
         page.addView(count);
-        LinearLayout filters = new LinearLayout(getActivity());
-        filters.setPadding(dp(24), 0, dp(24), dp(6));
-        filterButtons.clear();
-        for (int i = 0; i < FILTERS.length; i++) {
-            int choice = i;
-            TextView item = label(FILTERS[i], 14, BLUE, false);
-            item.setGravity(Gravity.CENTER);
-            item.setPadding(0, dp(11), 0, dp(11));
-            LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(0, -2, 1);
-            if (i > 0) layout.leftMargin = dp(8);
-            filters.addView(item, layout);
-            filterButtons.add(item);
-            item.setOnClickListener(view -> { filter = choice; render(); });
-        }
-        page.addView(filters);
+        captureStatus = label("", 11, GRAY, false);
+        captureStatus.setPadding(dp(24), 0, dp(24), 0);
+        captureStatus.setMaxLines(2);
+        page.addView(captureStatus);
+        filters = new LiquidGlassNavigation(getActivity(), FILTERS, false);
         FrameLayout frame = new FrameLayout(getActivity());
         page.addView(frame, new LinearLayout.LayoutParams(-1, 0, 1));
         ListView list = new ListView(getActivity());
         list.setDivider(null);
         list.setClipToPadding(false);
-        list.setPadding(0, 0, 0, dp(16) + LiquidGlassNavigation.contentBottomInset(getActivity()));
+        list.setPadding(0, filters.preferredHeight() + dp(28), 0,
+                dp(16) + LiquidGlassNavigation.contentBottomInset(getActivity()));
         list.setAdapter(adapter);
         list.setOnItemClickListener((parent, view, position, id) -> showLog(filtered.get(position)));
         frame.addView(list, new FrameLayout.LayoutParams(-1, -1));
@@ -94,6 +90,16 @@ public final class LogsFragment extends Fragment {
         empty.setGravity(Gravity.CENTER);
         frame.addView(empty, new FrameLayout.LayoutParams(-1, -1));
         list.setEmptyView(empty);
+        filters.setOnTabSelectedListener(index -> {
+            if (filter == index) return;
+            filter = index;
+            render();
+            list.setSelection(0);
+        });
+        FrameLayout.LayoutParams segmented = new FrameLayout.LayoutParams(-1, filters.preferredHeight(), Gravity.TOP);
+        segmented.setMargins(dp(24), dp(12), dp(24), 0);
+        frame.addView(filters, segmented);
+        filters.setBackdropSource(list);
         render();
         return page;
     }
@@ -126,15 +132,9 @@ public final class LogsFragment extends Fragment {
                 bytes += entry.size;
             }
         }
-        count.setText(filtered.size() + " 条 · " + android.text.format.Formatter.formatShortFileSize(app, bytes)
-                + "\n" + AppLog.captureStatus());
-        for (int i = 0; i < filterButtons.size(); i++) {
-            TextView button = filterButtons.get(i);
-            boolean selected = i == filter;
-            button.setTextColor(selected ? BLUE : GRAY);
-            button.setTypeface(Typeface.DEFAULT, selected ? Typeface.BOLD : Typeface.NORMAL);
-            button.setBackground(selected ? new FlatDividerDrawable(getActivity(), BLUE, 2) : null);
-        }
+        count.setText(filtered.size() + " 条 · " + android.text.format.Formatter.formatShortFileSize(app, bytes));
+        captureStatus.setText(AppLog.captureStatus());
+        filters.select(filter);
         empty.setText(filter == 0 ? "暂无日志" : "暂无" + FILTERS[filter] + "日志");
         adapter.notifyDataSetChanged();
     }
@@ -147,18 +147,56 @@ public final class LogsFragment extends Fragment {
             String detail = report;
             post(() -> {
                 Activity activity = getActivity();
+                if (logDialog != null) logDialog.dismiss();
+                Dialog dialog = new Dialog(activity);
+                logDialog = dialog;
+                dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+                dialog.setOnDismissListener(closed -> { if (logDialog == dialog) logDialog = null; });
+                LinearLayout content = column();
+                GradientDrawable background = new GradientDrawable();
+                background.setColor(Color.WHITE);
+                background.setCornerRadii(new float[]{dp(26), dp(26), dp(26), dp(26), 0, 0, 0, 0});
+                content.setBackground(background);
+                LinearLayout header = new LinearLayout(activity);
+                header.setGravity(Gravity.CENTER_VERTICAL);
+                header.setPadding(dp(24), dp(16), dp(24), dp(10));
+                TextView title = label(entry.title, 17, INK, true);
+                title.setSingleLine(true);
+                title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                header.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+                TextView copy = label("复制", 15, BLUE, false);
+                copy.setPadding(dp(16), dp(12), dp(14), dp(12));
+                copy.setOnClickListener(view -> {
+                    ((ClipboardManager) app.getSystemService(Context.CLIPBOARD_SERVICE))
+                            .setPrimaryClip(ClipData.newPlainText("Doro加密日志", detail));
+                    Toast.makeText(activity, "日志已复制", Toast.LENGTH_SHORT).show();
+                });
+                header.addView(copy);
+                TextView close = label("完成", 15, BLUE, false);
+                close.setPadding(dp(8), dp(12), 0, dp(12));
+                close.setOnClickListener(view -> dialog.dismiss());
+                header.addView(close);
+                content.addView(header);
+                TextView subtitle = label(entry.kind + " · "
+                        + DateFormat.getDateTimeInstance().format(new Date(entry.createdAt)), 12, GRAY, false);
+                subtitle.setPadding(dp(24), 0, dp(24), dp(12));
+                content.addView(subtitle);
                 TextView text = label(detail, 12, INK, false);
                 text.setTypeface(Typeface.MONOSPACE);
                 text.setTextIsSelectable(true);
-                text.setPadding(dp(20), dp(16), dp(20), dp(16));
+                text.setPadding(dp(24), dp(12), dp(24), dp(28));
                 ScrollView scroll = new ScrollView(activity);
                 scroll.addView(text);
-                new AlertDialog.Builder(activity).setTitle(entry.title).setView(scroll)
-                        .setPositiveButton("复制日志", (dialog, which) -> {
-                            ((ClipboardManager) app.getSystemService(Context.CLIPBOARD_SERVICE))
-                                    .setPrimaryClip(ClipData.newPlainText("Doro加密日志", detail));
-                            Toast.makeText(activity, "日志已复制", Toast.LENGTH_SHORT).show();
-                        }).setNegativeButton("关闭", null).show();
+                content.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+                dialog.setContentView(content);
+                dialog.show();
+                Window window = dialog.getWindow();
+                if (window != null) {
+                    window.setBackgroundDrawableResource(android.R.color.transparent);
+                    window.setGravity(Gravity.BOTTOM);
+                    window.setLayout(-1, Math.round(getResources().getDisplayMetrics().heightPixels * 0.88f));
+                    window.setDimAmount(0.18f);
+                }
             });
         });
     }
@@ -185,9 +223,11 @@ public final class LogsFragment extends Fragment {
 
     @Override public void onSaveInstanceState(Bundle state) { state.putInt("filter", filter); super.onSaveInstanceState(state); }
     @Override public void onDestroyView() {
+        if (logDialog != null) { logDialog.dismiss(); logDialog = null; }
         count = null;
+        captureStatus = null;
+        filters = null;
         empty = null;
-        filterButtons.clear();
         super.onDestroyView();
     }
     @Override public void onDestroy() { destroyed = true; worker.shutdown(); super.onDestroy(); }

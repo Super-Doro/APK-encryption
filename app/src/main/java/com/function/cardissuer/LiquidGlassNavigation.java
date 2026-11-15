@@ -32,12 +32,13 @@ import java.util.function.IntConsumer;
 
 /** A floating tab bar with a blurred backdrop and a draggable selection lens. */
 final class LiquidGlassNavigation extends FrameLayout {
-    private static final String[] TITLES = {"加密", "转换", "日志"};
     private static final int BLUE = Color.rgb(0, 122, 255);
     private static final int GRAY = Color.rgb(94, 99, 112);
     private final ImageView backdrop;
     private final GlassSurface glass;
-    private final TabItem[] tabs = new TabItem[TITLES.length];
+    private final String[] titles;
+    private final boolean showIcons;
+    private final TabItem[] tabs;
     private final int touchSlop;
     private final Runnable longPress = this::beginDrag;
     private final ViewTreeObserver.OnPreDrawListener preDraw = this::updateBackdrop;
@@ -55,7 +56,7 @@ final class LiquidGlassNavigation extends FrameLayout {
     private float downY;
     private float touchX;
     private float touchY;
-    private long downTime;
+    private int gestureStartIndex;
     private long lastSnapshot;
     private boolean tracking;
     private boolean dragging;
@@ -63,11 +64,22 @@ final class LiquidGlassNavigation extends FrameLayout {
     private boolean backdropDirty = true;
     private boolean snapshotEnabled = true;
 
+    private int innerInset() { return dp(showIcons ? 6 : 4); }
+
     LiquidGlassNavigation(Context context) {
+        this(context, new String[]{"加密", "转换", "日志"}, true);
+    }
+
+    LiquidGlassNavigation(Context context, String[] titles, boolean showIcons) {
         super(context);
+        if (titles.length == 0) throw new IllegalArgumentException("至少需要一个菜单项");
+        this.titles = titles.clone();
+        this.showIcons = showIcons;
+        tabs = new TabItem[titles.length];
+        setClickable(true);
         setClipChildren(false);
         setClipToOutline(true);
-        setElevation(dp(12));
+        setElevation(dp(showIcons ? 10 : 3));
         setOutlineAmbientShadowColor(Color.argb(100, 46, 59, 79));
         setOutlineSpotShadowColor(Color.argb(95, 46, 59, 79));
         setOutlineProvider(new ViewOutlineProvider() {
@@ -85,15 +97,12 @@ final class LiquidGlassNavigation extends FrameLayout {
         FrameLayout.LayoutParams background = new FrameLayout.LayoutParams(-1, -1);
         background.setMargins(-bleed, -bleed, -bleed, -bleed);
         addView(backdrop, background);
-        if (Build.VERSION.SDK_INT >= 31) {
-            try { backdrop.setRenderEffect(RenderEffect.createBlurEffect(dp(14), dp(14), Shader.TileMode.CLAMP)); }
-            catch (RuntimeException error) { android.util.Log.w("DoroNavigation", "系统模糊效果不可用", error); }
-        }
         glass = new GlassSurface(context);
         glass.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         addView(glass, new FrameLayout.LayoutParams(-1, -1));
         LinearLayout items = new LinearLayout(context);
-        items.setPadding(dp(6), dp(6), dp(6), dp(6));
+        int inset = innerInset();
+        items.setPadding(inset, inset, inset, inset);
         for (int i = 0; i < tabs.length; i++) {
             int index = i;
             tabs[i] = new TabItem(context, i);
@@ -107,12 +116,13 @@ final class LiquidGlassNavigation extends FrameLayout {
     }
 
     int preferredHeight() {
-        return Math.max(dp(72), dp(50) + Math.round(12 * getResources().getDisplayMetrics().scaledDensity));
+        return showIcons ? Math.max(dp(68), dp(46) + Math.round(12 * getResources().getDisplayMetrics().scaledDensity))
+                : Math.max(dp(52), dp(28) + Math.round(14 * getResources().getDisplayMetrics().scaledDensity));
     }
 
     static int contentBottomInset(Context context) {
         android.util.DisplayMetrics metrics = context.getResources().getDisplayMetrics();
-        return Math.max(Math.round(72 * metrics.density), Math.round(50 * metrics.density + 12 * metrics.scaledDensity))
+        return Math.max(Math.round(68 * metrics.density), Math.round(46 * metrics.density + 12 * metrics.scaledDensity))
                 + Math.round(28 * metrics.density);
     }
 
@@ -165,18 +175,17 @@ final class LiquidGlassNavigation extends FrameLayout {
     }
 
     private float positionAt(float x) {
-        float width = Math.max(1, (getWidth() - dp(12)) / (float) tabs.length);
-        return Math.max(0, Math.min(tabs.length - 1, (x - dp(6)) / width - 0.5f));
+        float width = Math.max(1, (getWidth() - innerInset() * 2) / (float) tabs.length);
+        float position = Math.max(0, Math.min(tabs.length - 1, (x - innerInset()) / width - 0.5f));
+        return getLayoutDirection() == LAYOUT_DIRECTION_RTL ? tabs.length - 1 - position : position;
     }
 
     private void beginDrag() {
         if (!tracking || multiTouch || !isShown() || !hasWindowFocus()) return;
-        MotionEvent cancel = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(),
-                MotionEvent.ACTION_CANCEL, touchX, touchY, 0);
-        super.dispatchTouchEvent(cancel);
-        cancel.recycle();
+        removeCallbacks(longPress);
         if (selectionAnimation != null) selectionAnimation.cancel();
         dragging = true;
+        AppLog.event(getContext(), showIcons ? "导航" : "日志筛选", "开始拖动菜单", "起始选项  " + titles[gestureStartIndex]);
         getParent().requestDisallowInterceptTouchEvent(true);
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
         if (ValueAnimator.areAnimatorsEnabled()) animate().scaleX(1.025f).scaleY(1.025f).setDuration(150).start();
@@ -192,10 +201,13 @@ final class LiquidGlassNavigation extends FrameLayout {
         previewIndex = hovered;
         updateTabStyles();
         glass.invalidate();
+        if (dragging && hovered != selectedIndex && listener != null) listener.accept(hovered);
     }
 
     private void endDrag(boolean commit) {
-        int target = commit ? previewIndex : selectedIndex;
+        int target = commit ? previewIndex : gestureStartIndex;
+        AppLog.event(getContext(), showIcons ? "导航" : "日志筛选", commit ? "完成菜单拖动" : "取消菜单拖动",
+                "目标选项  " + titles[target]);
         tracking = false;
         dragging = false;
         pointerId = -1;
@@ -204,23 +216,32 @@ final class LiquidGlassNavigation extends FrameLayout {
         if (ValueAnimator.areAnimatorsEnabled()) animate().scaleX(1).scaleY(1).setDuration(180).start();
         else { setScaleX(1); setScaleY(1); }
         previewIndex = target;
-        if (commit && listener != null) listener.accept(target);
+        if (listener != null && (commit || target != selectedIndex)) listener.accept(target);
         previewIndex = selectedIndex;
         updateTabStyles();
         if (selectionAnimation == null || !selectionAnimation.isRunning()) animateLens(selectedIndex);
         if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
     }
 
-    @Override public boolean dispatchTouchEvent(MotionEvent event) {
+    @Override public boolean onInterceptTouchEvent(MotionEvent event) { return true; }
+
+    @Override public boolean performClick() {
+        super.performClick();
+        tabs[previewIndex].performClick();
+        return true;
+    }
+
+    @Override public boolean onTouchEvent(MotionEvent event) {
         int action = event.getActionMasked();
         if (action == MotionEvent.ACTION_DOWN) {
             removeCallbacks(longPress);
             tracking = true;
             multiTouch = false;
+            gestureStartIndex = selectedIndex;
             pointerId = event.getPointerId(0);
             downX = touchX = event.getX();
             downY = touchY = event.getY();
-            downTime = event.getDownTime();
+            if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
             postDelayed(longPress, ViewConfiguration.getLongPressTimeout());
         } else if (action == MotionEvent.ACTION_POINTER_DOWN) {
             multiTouch = true;
@@ -229,7 +250,7 @@ final class LiquidGlassNavigation extends FrameLayout {
         } else if (action == MotionEvent.ACTION_MOVE) {
             if (multiTouch) return true;
             int pointer = event.findPointerIndex(pointerId);
-            if (pointer < 0) {
+            if (pointer < 0 || !tracking) {
                 if (dragging) endDrag(false);
                 removeCallbacks(longPress);
                 tracking = false;
@@ -237,12 +258,17 @@ final class LiquidGlassNavigation extends FrameLayout {
             }
             touchX = event.getX(pointer);
             touchY = event.getY(pointer);
+            float horizontal = Math.abs(touchX - downX);
+            float vertical = Math.abs(touchY - downY);
+            if (!dragging && horizontal > touchSlop && horizontal > vertical) beginDrag();
             if (dragging) { moveLens(touchX); return true; }
-            if (Math.abs(touchX - downX) > touchSlop || Math.abs(touchY - downY) > touchSlop) {
+            if (vertical > touchSlop * 2) {
                 removeCallbacks(longPress);
+                tracking = false;
             }
         } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
             removeCallbacks(longPress);
+            boolean wasTracking = tracking;
             tracking = false;
             if (dragging) {
                 boolean inside = event.getX() >= -dp(28) && event.getX() <= getWidth() + dp(28)
@@ -252,15 +278,18 @@ final class LiquidGlassNavigation extends FrameLayout {
                 return true;
             }
             if (multiTouch) {
-                MotionEvent cancel = MotionEvent.obtain(event);
-                cancel.setAction(MotionEvent.ACTION_CANCEL);
-                super.dispatchTouchEvent(cancel);
-                cancel.recycle();
+                if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
                 return true;
             }
+            if (action == MotionEvent.ACTION_UP && wasTracking && event.getX() >= 0 && event.getX() <= getWidth()
+                    && event.getY() >= 0 && event.getY() <= getHeight()) {
+                previewIndex = Math.round(positionAt(event.getX()));
+                performClick();
+            }
             pointerId = -1;
+            if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
         }
-        return super.dispatchTouchEvent(event);
+        return true;
     }
 
     private void updateTabStyles() {
@@ -268,9 +297,12 @@ final class LiquidGlassNavigation extends FrameLayout {
             TabItem item = tabs[i];
             if (item == null) continue;
             int color = i == previewIndex ? BLUE : GRAY;
-            item.icon.color = color;
-            item.icon.invalidate();
+            if (showIcons) {
+                item.icon.color = color;
+                item.icon.invalidate();
+            }
             item.title.setTextColor(color);
+            item.title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
             item.setSelected(i == selectedIndex);
         }
     }
@@ -298,6 +330,10 @@ final class LiquidGlassNavigation extends FrameLayout {
     private boolean updateBackdrop() {
         if (!snapshotEnabled || !isShown() || backdropSource == null || getWidth() == 0
                 || backdropSource.getWidth() == 0 || backdropSource.getHeight() == 0) return true;
+        if (backdropSource.getVisibility() != VISIBLE) {
+            backdrop.setImageDrawable(null);
+            return true;
+        }
         backdropDirty |= dirty(backdropSource);
         if (!backdropDirty) return true;
         long now = SystemClock.uptimeMillis();
@@ -333,6 +369,17 @@ final class LiquidGlassNavigation extends FrameLayout {
 
     @Override protected void onSizeChanged(int width, int height, int previousWidth, int previousHeight) {
         super.onSizeChanged(width, height, previousWidth, previousHeight);
+        if (width > 0 && height > 0 && Build.VERSION.SDK_INT >= 31) {
+            RenderEffect blur = RenderEffect.createBlurEffect(dp(7), dp(7), Shader.TileMode.CLAMP);
+            try {
+                if (Build.VERSION.SDK_INT >= 33) {
+                    Refraction.apply(backdrop, width, height, dp(16), dp(14), dp(7), blur);
+                } else backdrop.setRenderEffect(blur);
+            } catch (RuntimeException error) {
+                backdrop.setRenderEffect(blur);
+                android.util.Log.w("DoroNavigation", "折射效果不可用，使用系统模糊", error);
+            }
+        }
         invalidateOutline();
         invalidateBackdrop();
     }
@@ -381,14 +428,14 @@ final class LiquidGlassNavigation extends FrameLayout {
 
         @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
             tint = new LinearGradient(0, 0, 0, height,
-                    new int[]{Color.argb(215, 255, 255, 255), Color.argb(185, 255, 255, 255),
-                            Color.argb(205, 255, 255, 255)}, null, Shader.TileMode.CLAMP);
+                    new int[]{Color.argb(235, 247, 248, 250), Color.argb(185, 241, 243, 247),
+                            Color.argb(220, 247, 248, 250)}, null, Shader.TileMode.CLAMP);
             rim = new LinearGradient(0, 0, width, height,
-                    new int[]{Color.WHITE, Color.argb(135, 255, 255, 255), Color.argb(38, 75, 95, 125),
+                    new int[]{Color.WHITE, Color.argb(150, 255, 255, 255), Color.argb(58, 75, 95, 125),
                             Color.argb(210, 255, 255, 255)}, new float[]{0, 0.4f, 0.8f, 1}, Shader.TileMode.CLAMP);
-            lensTint = new LinearGradient(0, dp(6), 0, height - dp(6),
-                    new int[]{Color.argb(248, 255, 255, 255), Color.argb(225, 250, 250, 250),
-                            Color.argb(185, 245, 245, 245)}, null, Shader.TileMode.CLAMP);
+            lensTint = new LinearGradient(0, innerInset(), 0, height - innerInset(),
+                    new int[]{Color.argb(254, 255, 255, 255), Color.argb(235, 255, 255, 255),
+                            Color.argb(225, 250, 252, 255)}, null, Shader.TileMode.CLAMP);
         }
 
         @Override protected void onDraw(Canvas canvas) {
@@ -397,15 +444,16 @@ final class LiquidGlassNavigation extends FrameLayout {
             paint.setStyle(Paint.Style.FILL);
             paint.setShader(tint);
             canvas.drawRoundRect(bounds, getHeight() / 2f, getHeight() / 2f, paint);
-            float slot = (getWidth() - dp(12)) / (float) tabs.length;
+            float slot = (getWidth() - innerInset() * 2) / (float) tabs.length;
             float position = Math.max(-0.05f, Math.min(tabs.length - 0.95f, lensPosition));
-            float center = dp(6) + slot * (position + 0.5f);
+            if (getLayoutDirection() == LAYOUT_DIRECTION_RTL) position = tabs.length - 1 - position;
+            float center = innerInset() + slot * (position + 0.5f);
             float halfWidth = (slot - dp(4)) * (1 + lensStretch) / 2;
-            float halfHeight = (getHeight() - dp(12)) * (1 - lensStretch * 0.4f) / 2;
+            float halfHeight = (getHeight() - innerInset() * 2) * (1 - lensStretch * 0.4f) / 2;
             lens.set(center - halfWidth, getHeight() / 2f - halfHeight,
                     center + halfWidth, getHeight() / 2f + halfHeight);
             paint.setShader(null);
-            paint.setColor(Color.argb(18, 90, 90, 95));
+            paint.setColor(Color.argb(30, 80, 90, 110));
             canvas.drawRoundRect(lens.left, lens.top + dp(2), lens.right, lens.bottom + dp(2), halfHeight, halfHeight, paint);
             paint.setShader(lensTint);
             canvas.drawRoundRect(lens, halfHeight, halfHeight, paint);
@@ -431,18 +479,20 @@ final class LiquidGlassNavigation extends FrameLayout {
             setGravity(Gravity.CENTER);
             setClickable(true);
             setFocusable(true);
-            setContentDescription(TITLES[index]);
-            icon = new Icon(context, index);
-            icon.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-            addView(icon, new LinearLayout.LayoutParams(dp(25), dp(26)));
+            setContentDescription(titles[index]);
+            icon = showIcons ? new Icon(context, index) : null;
+            if (icon != null) {
+                icon.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+                addView(icon, new LinearLayout.LayoutParams(dp(24), dp(25)));
+            }
             title = new TextView(context);
-            title.setText(TITLES[index]);
-            title.setTextSize(11);
+            title.setText(titles[index]);
+            title.setTextSize(showIcons ? 11 : 14);
             title.setIncludeFontPadding(false);
             title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
             title.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
             LinearLayout.LayoutParams label = new LinearLayout.LayoutParams(-2, -2);
-            label.topMargin = dp(4);
+            label.topMargin = showIcons ? dp(3) : 0;
             addView(title, label);
         }
 
@@ -450,6 +500,41 @@ final class LiquidGlassNavigation extends FrameLayout {
             super.onInitializeAccessibilityNodeInfo(info);
             info.setClassName("android.widget.Button");
             info.setSelected(isSelected());
+        }
+    }
+
+    /** Kept behind the API 33 check so older Android versions can load the control. */
+    private static final class Refraction {
+        private static final String SHADER = """
+                uniform shader content;
+                uniform float2 viewSize;
+                uniform float2 halfSize;
+                uniform float radius;
+                uniform float rimWidth;
+                uniform float strength;
+                half4 main(float2 p) {
+                    float2 local = p - viewSize * 0.5;
+                    float2 inner = halfSize - float2(radius);
+                    float2 delta = local - clamp(local, -inner, inner);
+                    float distance = length(delta) - radius;
+                    float edge = 1.0 - smoothstep(0.0, rimWidth, -distance);
+                    float2 normal = delta / max(length(delta), 0.0001);
+                    float2 shift = normal * strength * edge * edge;
+                    half4 color = content.eval(p - shift);
+                    half red = content.eval(p - shift * 1.06).r;
+                    half blue = content.eval(p - shift * 0.94).b;
+                    return half4(red, color.g, blue, color.a);
+                }
+                """;
+
+        static void apply(ImageView view, int width, int height, int bleed, int rim, int strength, RenderEffect blur) {
+            android.graphics.RuntimeShader shader = new android.graphics.RuntimeShader(SHADER);
+            shader.setFloatUniform("viewSize", width + bleed * 2, height + bleed * 2);
+            shader.setFloatUniform("halfSize", width / 2f, height / 2f);
+            shader.setFloatUniform("radius", height / 2f);
+            shader.setFloatUniform("rimWidth", rim);
+            shader.setFloatUniform("strength", strength);
+            view.setRenderEffect(RenderEffect.createChainEffect(RenderEffect.createRuntimeShaderEffect(shader, "content"), blur));
         }
     }
 

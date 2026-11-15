@@ -180,11 +180,11 @@ public final class MainActivity extends Activity {
         navigation.setOnTabSelectedListener(index -> setTab(index == 2 ? 3 : index));
         FrameLayout.LayoutParams dock = new FrameLayout.LayoutParams(-1, navigation.preferredHeight(),
                 Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        dock.setMargins(dp(18), 0, dp(18), dp(12));
+        dock.setMargins(dp(20), 0, dp(20), dp(12));
         root.addView(navigation, dock);
         root.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-            int available = root.getWidth() - root.getPaddingLeft() - root.getPaddingRight() - dp(36);
-            int width = Math.max(1, Math.min(dp(380), available));
+            int available = root.getWidth() - root.getPaddingLeft() - root.getPaddingRight() - dp(40);
+            int width = Math.max(1, Math.min(dp(356), available));
             FrameLayout.LayoutParams layout = (FrameLayout.LayoutParams) navigation.getLayoutParams();
             if (layout.width != width) { layout.width = width; navigation.setLayoutParams(layout); }
         });
@@ -197,24 +197,24 @@ public final class MainActivity extends Activity {
         scroll.setClipToPadding(false);
         scroll.setPadding(0, 0, 0, LiquidGlassNavigation.contentBottomInset(this));
         LinearLayout page = column();
-        page.setPadding(dp(24), dp(24), dp(24), dp(24));
+        page.setPadding(dp(24), dp(20), dp(24), dp(24));
         scroll.addView(page);
         LinearLayout heading = row();
         heading.setGravity(Gravity.CENTER_VERTICAL);
-        heading.addView(label("Doro加密", 32, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
+        heading.addView(label("Doro加密", 30, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
         TextView history = label("记录", 15, BLUE, false);
         history.setPadding(dp(14), dp(12), 0, dp(12));
         history.setOnClickListener(view -> { reloadRecords(); setTab(2); });
         heading.addView(history);
         add(page, heading, 0);
-        add(page, label("每份文件使用独立密钥 · v" + versionName(), 14, GRAY, false), 8);
+        add(page, label("本地加密 · v" + versionName(), 13, GRAY, false), 6);
 
         LinearLayout file = row();
         file.setGravity(Gravity.CENTER_VERTICAL);
         file.setPadding(0, dp(22), 0, dp(22));
         file.setBackground(new FlatDividerDrawable(this));
-        add(page, file, 28);
-        TextView document = label("↑", 25, BLUE, false);
+        add(page, file, 22);
+        TextView document = label("＋", 26, BLUE, false);
         document.setGravity(Gravity.CENTER);
         file.addView(document, new LinearLayout.LayoutParams(dp(28), dp(40)));
         LinearLayout fileText = column();
@@ -232,10 +232,11 @@ public final class MainActivity extends Activity {
         file.addView(fileAction);
         fileRow = file;
         file.setOnClickListener(view -> { if (!busy) selectFile(); });
+        add(page, label("授权设置", 12, GRAY, true), 24);
 
         LinearLayout policy = row();
         policy.setGravity(Gravity.CENTER_VERTICAL);
-        policy.setPadding(0, dp(20), 0, dp(20));
+        policy.setPadding(0, dp(18), 0, dp(18));
         policy.setBackground(new FlatDividerDrawable(this));
         policy.addView(label("隔离服务策略", 15, INK, false), new LinearLayout.LayoutParams(0, -2, 1));
         policyValue = label("自动分析", 14, GRAY, false);
@@ -249,7 +250,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout validity = row();
         validity.setGravity(Gravity.CENTER_VERTICAL);
-        validity.setPadding(0, dp(20), 0, dp(20));
+        validity.setPadding(0, dp(18), 0, dp(18));
         validity.setBackground(new FlatDividerDrawable(this));
         validityTitle = label("有效期", 15, INK, false);
         validity.addView(validityTitle, new LinearLayout.LayoutParams(0, -2, 1));
@@ -260,7 +261,7 @@ public final class MainActivity extends Activity {
         validity.setOnClickListener(view -> { if (!busy) showValidity(false); });
         LinearLayout usage = row();
         usage.setGravity(Gravity.CENTER_VERTICAL);
-        usage.setPadding(0, dp(20), 0, dp(20));
+        usage.setPadding(0, dp(18), 0, dp(18));
         usage.setBackground(new FlatDividerDrawable(this));
         usage.addView(label("使用有效期", 15, INK, false), new LinearLayout.LayoutParams(0, -2, 1));
         usageValue = label("不限  ›", 14, GRAY, false);
@@ -286,8 +287,8 @@ public final class MainActivity extends Activity {
         LinearLayout page = column();
         LinearLayout heading = row();
         heading.setGravity(Gravity.CENTER_VERTICAL);
-        heading.setPadding(dp(24), dp(24), dp(24), 0);
-        heading.addView(label("记录", 32, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
+        heading.setPadding(dp(24), dp(20), dp(24), 0);
+        heading.addView(label("记录", 30, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
         recordCount = label("0 项", 13, GRAY, false);
         heading.addView(recordCount);
         TextView back = label("返回", 15, BLUE, false);
@@ -593,9 +594,9 @@ public final class MainActivity extends Activity {
 
     private String expiryText(ApkProtector.Result result) {
         String activation = result.expiresAt == 0 ? "未设置激活有效期" : (result.permanentActivation ? "激活截止  " : "到期  ")
-                + DateFormat.getDateTimeInstance().format(new Date(result.expiresAt));
+                + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(result.expiresAt));
         return activation + (result.usageExpiresAt == 0 ? "" : "\n使用截止  "
-                + DateFormat.getDateTimeInstance().format(new Date(result.usageExpiresAt)));
+                + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(result.usageExpiresAt)));
     }
 
     private void showPolicy() {
@@ -953,11 +954,12 @@ public final class MainActivity extends Activity {
         void bind(ApkProtector.Result record) {
             this.record = record;
             name.setText(record.sourceName);
-            identity.setText(record.packageName + "\n" + record.id);
+            identity.setText(record.packageName);
             details.setText((record.script ? "SH" : "APK") + " · "
                     + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(record.createdAt))
                     + "\n" + expiryText(record));
-            keyPreview.setText(record.key);
+            String key = record.key;
+            keyPreview.setText("专属密钥  " + (key.length() <= 16 ? key : key.substring(0, 8) + "…" + key.substring(key.length() - 4)));
         }
     }
 

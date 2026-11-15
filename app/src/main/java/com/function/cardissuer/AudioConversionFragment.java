@@ -157,9 +157,10 @@ public final class AudioConversionFragment extends Fragment {
         scroll.setClipToPadding(false);
         scroll.setPadding(0, 0, 0, LiquidGlassNavigation.contentBottomInset(getActivity()));
         LinearLayout page = column();
-        page.setPadding(dp(24), dp(24), dp(24), dp(24));
+        page.setPadding(dp(24), dp(20), dp(24), dp(24));
         scroll.addView(page);
-        add(page, label("音频转换", 32, INK, true), 0);
+        add(page, label("音频转换", 30, INK, true), 0);
+        add(page, label("单文件或文件夹批量转换", 13, GRAY, false), 6);
 
         LinearLayout selection = section();
         selectionLabel = label(selectionText, 16, INK, true);
@@ -168,18 +169,22 @@ public final class AudioConversionFragment extends Fragment {
         LinearLayout actions = row();
         fileButton = button("选择文件", false, () -> select(false));
         folderButton = button("选择文件夹", false, () -> select(true));
+        fileButton.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        fileButton.setPadding(0, dp(12), 0, dp(12));
+        folderButton.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        folderButton.setPadding(0, dp(12), 0, dp(12));
         actions.addView(fileButton, new LinearLayout.LayoutParams(0, -2, 1));
         LinearLayout.LayoutParams second = new LinearLayout.LayoutParams(0, -2, 1);
         second.leftMargin = dp(10);
         actions.addView(folderButton, second);
         add(selection, actions, 12);
-        add(page, selection, 28);
+        add(page, selection, 22);
 
         formatRow = row();
         formatRow.setGravity(Gravity.CENTER_VERTICAL);
         formatRow.setPadding(0, dp(20), 0, dp(20));
         formatRow.setBackground(new FlatDividerDrawable(getActivity()));
-        formatRow.addView(label("转换为", 16, INK, false), new LinearLayout.LayoutParams(0, -2, 1));
+        formatRow.addView(label("输出格式", 16, INK, false), new LinearLayout.LayoutParams(0, -2, 1));
         formatValue = label("", 15, BLUE, false);
         formatRow.addView(formatValue);
         formatRow.setOnClickListener(view -> { if (phase == Phase.IDLE) chooseFormat(); });
@@ -601,7 +606,11 @@ public final class AudioConversionFragment extends Fragment {
         preview.setVisibility(sources.isEmpty() ? View.GONE : View.VISIBLE);
         if (!sources.isEmpty()) {
             Map<String, Integer> types = new LinkedHashMap<>();
-            for (AudioConverter.Source source : sources) types.merge(source.type, 1, Integer::sum);
+            for (AudioConverter.Source source : sources) {
+                String type = source.type.replace("MOV,MP4,M4A,3GP,3G2,MJ2", "M4A")
+                        .replace("FLAC · FLAC", "FLAC").replace("MP3 · MP3", "MP3");
+                types.merge(type, 1, Integer::sum);
+            }
             StringBuilder summary = new StringBuilder("已识别格式");
             for (Map.Entry<String, Integer> entry : types.entrySet()) {
                 summary.append("\n").append(entry.getKey()).append("  ").append(entry.getValue()).append(" 个");
