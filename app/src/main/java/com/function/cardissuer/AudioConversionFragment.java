@@ -157,41 +157,37 @@ public final class AudioConversionFragment extends Fragment {
         scroll.setClipToPadding(false);
         scroll.setPadding(0, 0, 0, LiquidGlassNavigation.contentBottomInset(getActivity()));
         LinearLayout page = column();
-        page.setPadding(dp(24), dp(20), dp(24), dp(24));
+        page.setPadding(dp(20), dp(22), dp(20), dp(24));
         scroll.addView(page);
-        add(page, label("音频转换", 30, INK, true), 0);
-        add(page, label("单文件或文件夹批量转换", 13, GRAY, false), 6);
+        add(page, label("音频转换", 34, INK, true), 0);
+        add(page, label("自动识别格式，支持文件夹批量转换", 14, GRAY, false), 8);
 
-        LinearLayout selection = section();
+        LinearLayout selection = card();
         selectionLabel = label(selectionText, 16, INK, true);
         selectionLabel.setMaxLines(3);
         selection.addView(selectionLabel);
         LinearLayout actions = row();
         fileButton = button("选择文件", false, () -> select(false));
         folderButton = button("选择文件夹", false, () -> select(true));
-        fileButton.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        fileButton.setPadding(0, dp(12), 0, dp(12));
-        folderButton.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        folderButton.setPadding(0, dp(12), 0, dp(12));
         actions.addView(fileButton, new LinearLayout.LayoutParams(0, -2, 1));
         LinearLayout.LayoutParams second = new LinearLayout.LayoutParams(0, -2, 1);
         second.leftMargin = dp(10);
         actions.addView(folderButton, second);
-        add(selection, actions, 12);
-        add(page, selection, 22);
+        add(selection, actions, 18);
+        add(page, selection, 28);
 
         formatRow = row();
         formatRow.setGravity(Gravity.CENTER_VERTICAL);
-        formatRow.setPadding(0, dp(20), 0, dp(20));
-        formatRow.setBackground(new FlatDividerDrawable(getActivity()));
-        formatRow.addView(label("输出格式", 16, INK, false), new LinearLayout.LayoutParams(0, -2, 1));
+        formatRow.setPadding(dp(18), dp(20), dp(18), dp(20));
+        formatRow.setBackground(shape(Color.WHITE, 18));
+        formatRow.addView(label("转换为", 16, INK, false), new LinearLayout.LayoutParams(0, -2, 1));
         formatValue = label("", 15, BLUE, false);
         formatRow.addView(formatValue);
         formatRow.setOnClickListener(view -> { if (phase == Phase.IDLE) chooseFormat(); });
-        add(page, formatRow, 0);
+        add(page, formatRow, 16);
 
-        preview = section();
-        add(page, preview, 0);
+        preview = card();
+        add(page, preview, 16);
         convertButton = button("开始转换", true, this::startConversion);
         add(page, convertButton, 24);
         status = label("", 13, GRAY, false);
@@ -199,7 +195,7 @@ public final class AudioConversionFragment extends Fragment {
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         add(page, status, 14);
 
-        progressPanel = section();
+        progressPanel = card();
         progressLabel = label(stage, 14, INK, true);
         progressPanel.addView(progressLabel);
         progressBar = new ProgressBar(getActivity(), null, android.R.attr.progressBarStyleHorizontal);
@@ -333,22 +329,16 @@ public final class AudioConversionFragment extends Fragment {
         dialog.setOnDismissListener(closed -> { if (formatDialog == dialog) formatDialog = null; });
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         ScrollView scroll = new ScrollView(getActivity());
-        LinearLayout content = column();
-        content.setPadding(dp(24), dp(24), dp(24), dp(24));
-        content.setBackgroundColor(Color.WHITE);
+        LinearLayout content = card();
         content.addView(label("输出格式", 23, INK, true));
         AudioConverter.Format[] formats = AudioConverter.Format.values();
         for (int i = 0; i < formats.length; i++) {
             int choice = i;
-            Button option = button(formats[i].title + (formatIndex == i ? "  ✓" : ""), false, () -> {
+            add(content, button(formats[i].title + (formatIndex == i ? "  ✓" : ""), false, () -> {
                 formatIndex = choice;
                 render();
                 dialog.dismiss();
-            });
-            option.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-            option.setPadding(0, dp(14), 0, dp(14));
-            option.setBackground(new FlatDividerDrawable(getActivity()));
-            add(content, option, 0);
+            }), 10);
         }
         scroll.addView(content);
         dialog.setContentView(scroll);
@@ -606,11 +596,7 @@ public final class AudioConversionFragment extends Fragment {
         preview.setVisibility(sources.isEmpty() ? View.GONE : View.VISIBLE);
         if (!sources.isEmpty()) {
             Map<String, Integer> types = new LinkedHashMap<>();
-            for (AudioConverter.Source source : sources) {
-                String type = source.type.replace("MOV,MP4,M4A,3GP,3G2,MJ2", "M4A")
-                        .replace("FLAC · FLAC", "FLAC").replace("MP3 · MP3", "MP3");
-                types.merge(type, 1, Integer::sum);
-            }
+            for (AudioConverter.Source source : sources) types.merge(source.type, 1, Integer::sum);
             StringBuilder summary = new StringBuilder("已识别格式");
             for (Map.Entry<String, Integer> entry : types.entrySet()) {
                 summary.append("\n").append(entry.getKey()).append("  ").append(entry.getValue()).append(" 个");
@@ -718,10 +704,10 @@ public final class AudioConversionFragment extends Fragment {
         return view;
     }
     private LinearLayout row() { return new LinearLayout(getActivity()); }
-    private LinearLayout section() {
+    private LinearLayout card() {
         LinearLayout view = column();
-        view.setPadding(0, dp(20), 0, dp(20));
-        view.setBackground(new FlatDividerDrawable(getActivity()));
+        view.setPadding(dp(18), dp(20), dp(18), dp(20));
+        view.setBackground(shape(Color.WHITE, 20));
         return view;
     }
     private TextView label(String text, int size, int color, boolean bold) {
@@ -741,7 +727,7 @@ public final class AudioConversionFragment extends Fragment {
         view.setTextColor(primary ? Color.WHITE : BLUE);
         view.setTypeface(Typeface.DEFAULT, primary ? Typeface.BOLD : Typeface.NORMAL);
         view.setBackgroundTintList(null);
-        view.setBackground(primary ? shape(BLUE, 27) : null);
+        view.setBackground(shape(primary ? BLUE : Color.rgb(238, 245, 255), 14));
         view.setPadding(dp(12), dp(12), dp(12), dp(12));
         view.setMinHeight(dp(54));
         view.setElevation(0);
@@ -758,6 +744,7 @@ public final class AudioConversionFragment extends Fragment {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(color);
         drawable.setCornerRadius(dp(radius));
+        if (color == Color.WHITE) drawable.setStroke(Math.max(1, dp(1) / 2), Color.rgb(235, 235, 240));
         return drawable;
     }
     private int dp(int value) { return Math.round(value * app.getResources().getDisplayMetrics().density); }

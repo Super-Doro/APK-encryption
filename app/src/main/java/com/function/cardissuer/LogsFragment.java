@@ -15,7 +15,6 @@ import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.Window;
 import android.widget.BaseAdapter;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -43,7 +42,6 @@ public final class LogsFragment extends Fragment {
     private final Runnable listener = this::refresh;
     private Context app;
     private TextView count;
-    private TextView captureStatus;
     private TextView empty;
     private int filter;
     private boolean loading;
@@ -61,20 +59,16 @@ public final class LogsFragment extends Fragment {
         page.setBackgroundColor(Color.WHITE);
         LinearLayout header = new LinearLayout(getActivity());
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(24), dp(20), dp(24), dp(8));
-        header.addView(label("日志", 30, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
+        header.setPadding(dp(20), dp(22), dp(20), dp(8));
+        header.addView(label("日志", 34, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
         TextView clear = label("清空", 15, BLUE, false);
         clear.setPadding(dp(16), dp(12), 0, dp(12));
         clear.setOnClickListener(view -> confirmClear());
         header.addView(clear);
         page.addView(header);
-        count = label("正在读取日志", 13, GRAY, false);
-        count.setPadding(dp(24), 0, dp(24), dp(4));
+        count = label("正在读取日志", 12, GRAY, false);
+        count.setPadding(dp(20), 0, dp(20), dp(16));
         page.addView(count);
-        captureStatus = label("", 11, GRAY, false);
-        captureStatus.setPadding(dp(24), 0, dp(24), 0);
-        captureStatus.setMaxLines(2);
-        page.addView(captureStatus);
         filters = new LiquidGlassNavigation(getActivity(), FILTERS, false);
         FrameLayout frame = new FrameLayout(getActivity());
         page.addView(frame, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -132,8 +126,8 @@ public final class LogsFragment extends Fragment {
                 bytes += entry.size;
             }
         }
-        count.setText(filtered.size() + " 条 · " + android.text.format.Formatter.formatShortFileSize(app, bytes));
-        captureStatus.setText(AppLog.captureStatus());
+        count.setText(filtered.size() + " 条 · " + android.text.format.Formatter.formatShortFileSize(app, bytes)
+                + "\n" + AppLog.captureStatus());
         filters.select(filter);
         empty.setText(filter == 0 ? "暂无日志" : "暂无" + FILTERS[filter] + "日志");
         adapter.notifyDataSetChanged();
@@ -147,56 +141,22 @@ public final class LogsFragment extends Fragment {
             String detail = report;
             post(() -> {
                 Activity activity = getActivity();
-                if (logDialog != null) logDialog.dismiss();
-                Dialog dialog = new Dialog(activity);
-                logDialog = dialog;
-                dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-                dialog.setOnDismissListener(closed -> { if (logDialog == dialog) logDialog = null; });
-                LinearLayout content = column();
-                GradientDrawable background = new GradientDrawable();
-                background.setColor(Color.WHITE);
-                background.setCornerRadii(new float[]{dp(26), dp(26), dp(26), dp(26), 0, 0, 0, 0});
-                content.setBackground(background);
-                LinearLayout header = new LinearLayout(activity);
-                header.setGravity(Gravity.CENTER_VERTICAL);
-                header.setPadding(dp(24), dp(16), dp(24), dp(10));
-                TextView title = label(entry.title, 17, INK, true);
-                title.setSingleLine(true);
-                title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                header.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-                TextView copy = label("复制", 15, BLUE, false);
-                copy.setPadding(dp(16), dp(12), dp(14), dp(12));
-                copy.setOnClickListener(view -> {
-                    ((ClipboardManager) app.getSystemService(Context.CLIPBOARD_SERVICE))
-                            .setPrimaryClip(ClipData.newPlainText("Doro加密日志", detail));
-                    Toast.makeText(activity, "日志已复制", Toast.LENGTH_SHORT).show();
-                });
-                header.addView(copy);
-                TextView close = label("完成", 15, BLUE, false);
-                close.setPadding(dp(8), dp(12), 0, dp(12));
-                close.setOnClickListener(view -> dialog.dismiss());
-                header.addView(close);
-                content.addView(header);
-                TextView subtitle = label(entry.kind + " · "
-                        + DateFormat.getDateTimeInstance().format(new Date(entry.createdAt)), 12, GRAY, false);
-                subtitle.setPadding(dp(24), 0, dp(24), dp(12));
-                content.addView(subtitle);
                 TextView text = label(detail, 12, INK, false);
                 text.setTypeface(Typeface.MONOSPACE);
                 text.setTextIsSelectable(true);
-                text.setPadding(dp(24), dp(12), dp(24), dp(28));
+                text.setPadding(dp(20), dp(16), dp(20), dp(16));
                 ScrollView scroll = new ScrollView(activity);
                 scroll.addView(text);
-                content.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-                dialog.setContentView(content);
+                if (logDialog != null) logDialog.dismiss();
+                AlertDialog dialog = new AlertDialog.Builder(activity).setTitle(entry.title).setView(scroll)
+                        .setPositiveButton("复制日志", (source, which) -> {
+                            ((ClipboardManager) app.getSystemService(Context.CLIPBOARD_SERVICE))
+                                    .setPrimaryClip(ClipData.newPlainText("Doro加密日志", detail));
+                            Toast.makeText(activity, "日志已复制", Toast.LENGTH_SHORT).show();
+                        }).setNegativeButton("关闭", null).create();
+                logDialog = dialog;
+                dialog.setOnDismissListener(closed -> { if (logDialog == dialog) logDialog = null; });
                 dialog.show();
-                Window window = dialog.getWindow();
-                if (window != null) {
-                    window.setBackgroundDrawableResource(android.R.color.transparent);
-                    window.setGravity(Gravity.BOTTOM);
-                    window.setLayout(-1, Math.round(getResources().getDisplayMetrics().heightPixels * 0.88f));
-                    window.setDimAmount(0.18f);
-                }
             });
         });
     }
@@ -225,9 +185,8 @@ public final class LogsFragment extends Fragment {
     @Override public void onDestroyView() {
         if (logDialog != null) { logDialog.dismiss(); logDialog = null; }
         count = null;
-        captureStatus = null;
-        filters = null;
         empty = null;
+        filters = null;
         super.onDestroyView();
     }
     @Override public void onDestroy() { destroyed = true; worker.shutdown(); super.onDestroy(); }
@@ -246,6 +205,13 @@ public final class LogsFragment extends Fragment {
         if (bold) view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         return view;
     }
+    private GradientDrawable shape(int color, int radius) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(dp(radius));
+        if (color == Color.WHITE) drawable.setStroke(Math.max(1, dp(1) / 2), Color.rgb(235, 235, 240));
+        return drawable;
+    }
     private int dp(int value) { return Math.round(value * app.getResources().getDisplayMetrics().density); }
 
     private final class LogAdapter extends BaseAdapter {
@@ -256,20 +222,20 @@ public final class LogsFragment extends Fragment {
             LinearLayout outer;
             if (recycled == null) {
                 outer = column();
-                outer.setPadding(dp(24), 0, dp(24), 0);
-                LinearLayout content = column();
-                content.setPadding(0, dp(20), 0, dp(20));
-                content.setBackground(new FlatDividerDrawable(getActivity()));
-                content.addView(label("", 16, INK, true));
+                outer.setPadding(dp(20), dp(6), dp(20), dp(6));
+                LinearLayout card = column();
+                card.setPadding(dp(18), dp(18), dp(18), dp(18));
+                card.setBackground(shape(Color.WHITE, 18));
+                card.addView(label("", 16, INK, true));
                 TextView subtitle = label("", 12, GRAY, false);
                 subtitle.setPadding(0, dp(8), 0, 0);
-                content.addView(subtitle);
-                outer.addView(content);
+                card.addView(subtitle);
+                outer.addView(card);
             } else outer = (LinearLayout) recycled;
-            LinearLayout content = (LinearLayout) outer.getChildAt(0);
+            LinearLayout card = (LinearLayout) outer.getChildAt(0);
             ErrorLogStore.Entry entry = getItem(position);
-            ((TextView) content.getChildAt(0)).setText(entry.title);
-            ((TextView) content.getChildAt(1)).setText(entry.kind + " · "
+            ((TextView) card.getChildAt(0)).setText(entry.title);
+            ((TextView) card.getChildAt(1)).setText(entry.kind + " · "
                     + DateFormat.getDateTimeInstance().format(new Date(entry.createdAt)));
             return outer;
         }
