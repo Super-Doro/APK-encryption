@@ -47,6 +47,7 @@ public final class MainActivity extends Activity {
     private static final int SELECT = 10;
     private static final int EXPORT = 11;
     private static final int AUDIO_CONTAINER = 0x00d07001;
+    private static final int LOGS_CONTAINER = 0x00d07002;
     private static final int BLUE = Color.rgb(0, 122, 255);
     private static final int INK = Color.rgb(28, 28, 30);
     private static final int GRAY = Color.rgb(142, 142, 147);
@@ -61,6 +62,7 @@ public final class MainActivity extends Activity {
     private View homePage;
     private View recordsPage;
     private View audioPage;
+    private View logsPage;
     private View fileRow;
     private View policyRow;
     private TextView fileName;
@@ -84,6 +86,7 @@ public final class MainActivity extends Activity {
     private ProgressBar progressBar;
     private TabView encryptTab;
     private TabView convertTab;
+    private TabView logsTab;
     private File inputFile;
     private String inputName;
     private File pendingExport;
@@ -140,6 +143,13 @@ public final class MainActivity extends Activity {
             getFragmentManager().beginTransaction()
                     .add(AUDIO_CONTAINER, new AudioConversionFragment(), "audio-conversion").commit();
         }
+        FrameLayout logs = new FrameLayout(this);
+        logs.setId(LOGS_CONTAINER);
+        logsPage = logs;
+        pages.addView(logs, new FrameLayout.LayoutParams(-1, -1));
+        if (getFragmentManager().findFragmentByTag("app-logs") == null) {
+            getFragmentManager().beginTransaction().add(LOGS_CONTAINER, new LogsFragment(), "app-logs").commit();
+        }
 
         progressPanel = column();
         progressPanel.setPadding(dp(18), dp(16), dp(18), dp(16));
@@ -170,12 +180,15 @@ public final class MainActivity extends Activity {
         separator.setBackgroundColor(LINE);
         root.addView(separator, new LinearLayout.LayoutParams(-1, dp(1)));
         root.addView(navigation, new LinearLayout.LayoutParams(-1, dp(66)));
-        encryptTab = new TabView("加密", false);
-        convertTab = new TabView("转换", true);
+        encryptTab = new TabView("加密", 0);
+        convertTab = new TabView("转换", 1);
+        logsTab = new TabView("日志", 2);
         navigation.addView(encryptTab, new LinearLayout.LayoutParams(0, -1, 1));
         navigation.addView(convertTab, new LinearLayout.LayoutParams(0, -1, 1));
+        navigation.addView(logsTab, new LinearLayout.LayoutParams(0, -1, 1));
         encryptTab.setOnClickListener(view -> setTab(0));
         convertTab.setOnClickListener(view -> setTab(1));
+        logsTab.setOnClickListener(view -> openLogs());
         setContentView(root);
     }
 
@@ -189,10 +202,6 @@ public final class MainActivity extends Activity {
         LinearLayout heading = row();
         heading.setGravity(Gravity.CENTER_VERTICAL);
         heading.addView(label("Doro加密", 34, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
-        TextView logs = label("日志", 15, BLUE, false);
-        logs.setPadding(dp(16), dp(12), 0, dp(12));
-        logs.setOnClickListener(view -> openLogs());
-        heading.addView(logs);
         TextView history = label("记录", 15, BLUE, false);
         history.setPadding(dp(14), dp(12), 0, dp(12));
         history.setOnClickListener(view -> { reloadRecords(); setTab(2); });
@@ -321,12 +330,19 @@ public final class MainActivity extends Activity {
     }
 
     private void setTab(int tab) {
-        currentTab = Math.max(0, Math.min(2, tab));
+        currentTab = Math.max(0, Math.min(3, tab));
         homePage.setVisibility(currentTab == 0 ? View.VISIBLE : View.GONE);
         audioPage.setVisibility(currentTab == 1 ? View.VISIBLE : View.GONE);
         recordsPage.setVisibility(currentTab == 2 ? View.VISIBLE : View.GONE);
-        encryptTab.select(currentTab != 1);
+        logsPage.setVisibility(currentTab == 3 ? View.VISIBLE : View.GONE);
+        encryptTab.select(currentTab == 0 || currentTab == 2);
         convertTab.select(currentTab == 1);
+        logsTab.select(currentTab == 3);
+        AppLog.event(this, "导航", "切换页面", new String[]{"加密", "转换", "记录", "日志"}[currentTab]);
+        if (currentTab == 3) {
+            LogsFragment logs = (LogsFragment) getFragmentManager().findFragmentByTag("app-logs");
+            if (logs != null) logs.refresh();
+        }
         if (currentTab != 2) {
             ((android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
                     .hideSoftInputFromWindow(search.getWindowToken(), 0);
@@ -347,7 +363,10 @@ public final class MainActivity extends Activity {
     @Override protected void onActivityResult(int request, int response, Intent data) {
         super.onActivityResult(request, response, data);
         if (response != RESULT_OK || data == null || data.getData() == null) {
-            if (request == EXPORT) pendingExport = null;
+            if (request == EXPORT) {
+                pendingExport = null;
+                AppLog.event(this, "导出", "取消导出", "已关闭保存位置选择器");
+            }
             return;
         }
         android.net.Uri uri = data.getData();
@@ -356,6 +375,7 @@ public final class MainActivity extends Activity {
     }
 
     private void importFile(android.net.Uri uri) {
+        AppLog.event(this, "加密", "开始添加文件", "从系统文件选择器读取文件");
         String displayName = uri.getLastPathSegment();
         long reportedSize = -1;
         try (android.database.Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
@@ -384,6 +404,7 @@ public final class MainActivity extends Activity {
                 ApkProtector.copy(input, output, done -> publish("正在添加文件",
                         total > 0 ? ProtectionProgress.percent(done, total, 0, 100) : -1));
                 }
+                AppLog.event(this, "加密", "文件添加完成", name + "\n大小  " + saved.length() + " 字节");
                 runOnUiThread(() -> {
                     if (isDestroyed()) return;
                     if (inputFile != null) inputFile.delete();
@@ -407,6 +428,8 @@ public final class MainActivity extends Activity {
         long issuedAt = System.currentTimeMillis();
         long expiresAt = issuedAt + validHours * 3_600_000L;
         long usageExpiresAt = usageHours == 0 ? 0 : issuedAt + usageHours * 3_600_000L;
+        AppLog.event(this, "加密", "开始加密", "文件  " + name + "\n大小  " + source.length()
+                + "\n隔离策略  " + policy + "\n激活小时  " + validHours + "\n使用小时  " + usageHours);
         setBusy(true);
         notice.setText("");
         publish("准备加密", 0);
@@ -416,6 +439,8 @@ public final class MainActivity extends Activity {
                         ? ScriptProtector.protect(this, source, name, issuedAt, expiresAt, usageExpiresAt, this::publish)
                         : ApkProtector.protect(this, source, name, policy, issuedAt, expiresAt, usageExpiresAt, this::publish);
                 source.delete();
+                AppLog.event(this, "加密", "加密完成", "文件  " + name + "\n生成编号  " + generated.id
+                        + "\n输出字节  " + generated.apk.length());
                 runOnUiThread(() -> {
                     if (isDestroyed()) return;
                     inputFile = null;
@@ -435,6 +460,7 @@ public final class MainActivity extends Activity {
 
     private void publish(String stage, int percent) {
         if (percent == lastPercent && stage.equals(lastStage)) return;
+        if (!stage.equals(lastStage)) AppLog.event(this, "加密", "处理阶段", stage);
         lastStage = stage;
         lastPercent = percent;
         runOnUiThread(() -> {
@@ -622,6 +648,7 @@ public final class MainActivity extends Activity {
     }
 
     private void copyKey(ApkProtector.Result result) {
+        AppLog.event(this, "记录", "复制密钥", "生成编号  " + result.id);
         ClipData data = ClipData.newPlainText("本次生成文件的专属密钥", result.key);
         android.os.PersistableBundle extras = new android.os.PersistableBundle();
         extras.putBoolean("android.content.extra.IS_SENSITIVE", true);
@@ -652,11 +679,13 @@ public final class MainActivity extends Activity {
 
     private void deleteRecord(ApkProtector.Result result) {
         if (busy) { toast("当前任务完成后即可删除"); return; }
+        AppLog.event(this, "记录", "开始删除记录和文件", result.sourceName + "\n生成编号  " + result.id);
         setBusy(true);
         publish("正在删除记录和文件", -1);
         worker.execute(() -> {
             try {
                 ApkProtector.deleteRecord(this, result);
+                AppLog.event(this, "记录", "记录和文件删除完成", "生成编号  " + result.id);
                 runOnUiThread(() -> {
                     if (isDestroyed()) return;
                     if (pendingExport != null && pendingExport.getParentFile().equals(result.apk.getParentFile())) {
@@ -686,6 +715,7 @@ public final class MainActivity extends Activity {
 
     private void export(File source, String name, String mime) {
         if (busy) { toast("当前任务完成后即可导出"); return; }
+        AppLog.event(this, "导出", "选择保存位置", "文件  " + name + "\n类型  " + mime);
         pendingExport = source;
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT).setType(mime);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -695,6 +725,7 @@ public final class MainActivity extends Activity {
 
     private void saveExport(android.net.Uri uri) {
         File source = pendingExport;
+        AppLog.event(this, "导出", "开始导出", "文件  " + source.getName() + "\n字节  " + source.length());
         pendingExport = null;
         setBusy(true);
         publish("正在导出文件", 0);
@@ -707,6 +738,7 @@ public final class MainActivity extends Activity {
                         ProtectionProgress.percent(done, source.length(), 0, 100)));
                 output.flush();
                 }
+                AppLog.event(this, "导出", "导出完成", "文件  " + source.getName() + "\n字节  " + source.length());
                 runOnUiThread(() -> {
                     if (isDestroyed()) return;
                     setBusy(false);
@@ -784,7 +816,7 @@ public final class MainActivity extends Activity {
         return ErrorLogStore.versionName(this);
     }
 
-    private void openLogs() { startActivity(new Intent(this, ErrorLogsActivity.class)); }
+    private void openLogs() { setTab(3); }
 
     private String safeName(String name) { return name.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_"); }
     private void toast(String message) { Toast.makeText(this, message, Toast.LENGTH_SHORT).show(); }
@@ -941,11 +973,11 @@ public final class MainActivity extends Activity {
     private final class TabView extends LinearLayout {
         final TextView title;
         final TabIcon icon;
-        TabView(String text, boolean conversion) {
+        TabView(String text, int iconType) {
             super(MainActivity.this);
             setOrientation(VERTICAL);
             setGravity(Gravity.CENTER);
-            icon = new TabIcon(conversion);
+            icon = new TabIcon(iconType);
             addView(icon, new LinearLayout.LayoutParams(dp(24), dp(25)));
             title = label(text, 11, GRAY, false);
             LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(-2, -2);
@@ -961,10 +993,10 @@ public final class MainActivity extends Activity {
         }
     }
     private final class TabIcon extends View {
-        final boolean conversion;
+        final int iconType;
         final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         int color = GRAY;
-        TabIcon(boolean conversion) { super(MainActivity.this); this.conversion = conversion; }
+        TabIcon(int iconType) { super(MainActivity.this); this.iconType = iconType; }
         @Override protected void onDraw(Canvas canvas) {
             canvas.save();
             canvas.scale(getWidth() / 24f, getHeight() / 25f);
@@ -972,7 +1004,12 @@ public final class MainActivity extends Activity {
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(1.8f);
             paint.setStrokeCap(Paint.Cap.ROUND);
-            if (conversion) {
+            if (iconType == 2) {
+                canvas.drawRoundRect(5, 2, 20, 23, 3, 3, paint);
+                canvas.drawLine(9, 8, 16, 8, paint);
+                canvas.drawLine(9, 13, 16, 13, paint);
+                canvas.drawLine(9, 18, 14, 18, paint);
+            } else if (iconType == 1) {
                 canvas.drawLine(4, 8, 20, 8, paint);
                 canvas.drawLine(16, 4, 20, 8, paint);
                 canvas.drawLine(16, 12, 20, 8, paint);

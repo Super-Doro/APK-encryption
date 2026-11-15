@@ -17,5 +17,6 @@ public final class DoroApplication extends android.app.Application {
                 }
             }
         });
+        AppLog.start(this);
     }
 }

@@ -274,6 +274,7 @@ public final class AudioConversionFragment extends Fragment {
 
     private void scanSelection() {
         if (selectionUri == null) return;
+        AppLog.event(app, "音频", "开始识别音频", folder ? "扫描文件夹及子文件夹" : "识别单个音频文件");
         Uri uri = selectionUri;
         boolean tree = folder;
         sources.clear();
@@ -292,6 +293,9 @@ public final class AudioConversionFragment extends Fragment {
                 AudioConverter.Selection selection = engine.scan(uri, tree, this::publish);
                 checkCancelled();
                 String name = tree ? "文件夹" : engine.documentName(uri);
+                AppLog.event(app, "音频", "音频识别完成", "文件  " + name + "\n扫描  " + selection.scanned
+                        + "\n识别  " + selection.sources.size() + "\n跳过  " + selection.skipped
+                        + "\n读取失败  " + selection.unreadable);
                 post(() -> {
                     converter = null;
                     if (!cancelled) sources.addAll(selection.sources);
@@ -349,6 +353,7 @@ public final class AudioConversionFragment extends Fragment {
         if (phase != Phase.IDLE || sources.isEmpty()) return;
         List<AudioConverter.Source> inputs = new ArrayList<>(sources);
         AudioConverter.Format format = AudioConverter.Format.values()[formatIndex];
+        AppLog.event(app, "音频", "开始音频转换", "文件数  " + inputs.size() + "\n目标格式  " + format.title);
         jobName = "job-" + UUID.randomUUID();
         File directory;
         try { directory = files.job(jobName); }
@@ -377,6 +382,8 @@ public final class AudioConversionFragment extends Fragment {
                 checkCancelled();
                 int index = i;
                 AudioConverter.Source source = inputs.get(i);
+                AppLog.event(app, "音频", "正在转换文件", "文件  " + source.path + "\n输入  " + source.type
+                        + "\n输出  " + format.title);
                 publish("正在转换 " + (i + 1) + "/" + inputs.size() + "\n" + source.path, i * 100 / inputs.size());
                 try {
                     converted.add(engine.convert(source, format, directory, i, names, (name, progress) -> {
@@ -402,6 +409,7 @@ public final class AudioConversionFragment extends Fragment {
             checkCancelled();
             String summary = "成功转换 " + converted.size() + " 个文件"
                     + (failures == 0 ? "" : "，失败 " + failures + " 个，详情见日志");
+            AppLog.event(app, "音频", "音频转换完成", summary);
             post(() -> {
                 converter = null;
                 outputs.addAll(converted);
@@ -469,6 +477,7 @@ public final class AudioConversionFragment extends Fragment {
     }
 
     private void exportTo(Uri uri, boolean batch) {
+        AppLog.event(app, "音频导出", "开始导出音频", "文件数  " + outputs.size() + "\n批量  " + batch);
         List<AudioConverter.Output> saved = new ArrayList<>(outputs);
         AudioConverter.Format format = AudioConverter.Format.values()[formatIndex];
         File directory;
@@ -481,6 +490,7 @@ public final class AudioConversionFragment extends Fragment {
         worker.execute(() -> {
             try {
                 files.export(saved, uri, batch, format, this::checkCancelled, this::publish);
+                AppLog.event(app, "音频导出", "音频导出完成", "文件数  " + saved.size());
                 cleanAfterOperation(directory, "已导出 " + saved.size() + " 个文件，临时文件已清理", null);
             } catch (CancellationException error) {
                 cleanAfterOperation(directory, "导出已取消，临时文件已清理", null);
@@ -520,6 +530,7 @@ public final class AudioConversionFragment extends Fragment {
             result = "临时文件清理失败，下次启动时重试。详细信息已保存到日志。";
         }
         String notice = result;
+        AppLog.event(app, "音频", "任务结束并清理临时文件", notice);
         post(() -> {
             converter = null;
             outputs.clear();
@@ -533,6 +544,7 @@ public final class AudioConversionFragment extends Fragment {
 
     private void cancelOperation() {
         if (phase != Phase.SCANNING && phase != Phase.CONVERTING && phase != Phase.EXPORTING) return;
+        AppLog.event(app, "音频", "取消当前任务", "阶段  " + phase.name());
         cancelled = true;
         AudioConverter engine = converter;
         if (engine != null) engine.cancel();

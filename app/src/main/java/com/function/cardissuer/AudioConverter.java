@@ -9,6 +9,7 @@ import com.arthenica.ffmpegkit.FFmpegKit;
 import com.arthenica.ffmpegkit.FFmpegKitConfig;
 import com.arthenica.ffmpegkit.FFmpegSession;
 import com.arthenica.ffmpegkit.LogRedirectionStrategy;
+import com.arthenica.ffmpegkit.Level;
 import com.arthenica.ffmpegkit.MediaInformation;
 import com.arthenica.ffmpegkit.MediaInformationSession;
 import com.arthenica.ffmpegkit.ReturnCode;
@@ -165,7 +166,11 @@ final class AudioConverter {
         String input = FFmpegKitConfig.getSafParameterForRead(context, uri);
         MediaInformationSession session = MediaInformationSession.create(new String[]{
                 "-v", "error", "-probesize", "32M", "-analyzeduration", "30000000",
-                "-print_format", "json", "-show_format", "-show_streams", input});
+                "-print_format", "json", "-show_format", "-show_streams", input}, null, log -> {
+                    if (log.getLevel() != Level.AV_LOG_STDERR) {
+                        android.util.Log.w("DoroFFprobe", log.getMessage());
+                    }
+                });
         sessionId = session.getSessionId();
         try {
             checkCancelled();
@@ -210,7 +215,8 @@ final class AudioConverter {
                     "-map_metadata", "0", "-c:a", format.codec));
             command.addAll(Arrays.asList(format.options));
             command.add(destination.getAbsolutePath());
-            FFmpegSession session = FFmpegSession.create(command.toArray(new String[0]), null, null, statistics -> {
+            FFmpegSession session = FFmpegSession.create(command.toArray(new String[0]), null,
+                    log -> android.util.Log.w("DoroFFmpeg", log.getMessage()), statistics -> {
                 if (source.duration > 0) {
                     int percent = (int) Math.min(99, 10 + statistics.getTime() * 89 / (source.duration * 1000));
                     progress.update(source.path, Math.max(10, percent));
