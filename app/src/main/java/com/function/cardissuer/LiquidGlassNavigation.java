@@ -85,7 +85,7 @@ final class LiquidGlassNavigation extends FrameLayout {
         setOutlineProvider(new ViewOutlineProvider() {
             @Override public void getOutline(View view, Outline outline) {
                 outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), view.getHeight() / 2f);
-                outline.setAlpha(0.28f);
+                outline.setAlpha(0.20f);
             }
         });
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -370,7 +370,7 @@ final class LiquidGlassNavigation extends FrameLayout {
     @Override protected void onSizeChanged(int width, int height, int previousWidth, int previousHeight) {
         super.onSizeChanged(width, height, previousWidth, previousHeight);
         if (width > 0 && height > 0 && Build.VERSION.SDK_INT >= 31) {
-            RenderEffect blur = RenderEffect.createBlurEffect(dp(7), dp(7), Shader.TileMode.CLAMP);
+            RenderEffect blur = RenderEffect.createBlurEffect(dp(4), dp(4), Shader.TileMode.CLAMP);
             try {
                 if (Build.VERSION.SDK_INT >= 33) {
                     Refraction.apply(backdrop, width, height, dp(16), dp(14), dp(7), blur);
@@ -428,14 +428,14 @@ final class LiquidGlassNavigation extends FrameLayout {
 
         @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
             tint = new LinearGradient(0, 0, 0, height,
-                    new int[]{Color.argb(235, 247, 248, 250), Color.argb(185, 241, 243, 247),
-                            Color.argb(220, 247, 248, 250)}, null, Shader.TileMode.CLAMP);
+                    new int[]{Color.argb(86, 255, 255, 255), Color.argb(38, 249, 251, 255),
+                            Color.argb(64, 255, 255, 255)}, null, Shader.TileMode.CLAMP);
             rim = new LinearGradient(0, 0, width, height,
                     new int[]{Color.WHITE, Color.argb(150, 255, 255, 255), Color.argb(58, 75, 95, 125),
                             Color.argb(210, 255, 255, 255)}, new float[]{0, 0.4f, 0.8f, 1}, Shader.TileMode.CLAMP);
             lensTint = new LinearGradient(0, innerInset(), 0, height - innerInset(),
-                    new int[]{Color.argb(254, 255, 255, 255), Color.argb(235, 255, 255, 255),
-                            Color.argb(225, 250, 252, 255)}, null, Shader.TileMode.CLAMP);
+                    new int[]{Color.argb(110, 255, 255, 255), Color.argb(64, 255, 255, 255),
+                            Color.argb(84, 250, 252, 255)}, null, Shader.TileMode.CLAMP);
         }
 
         @Override protected void onDraw(Canvas canvas) {
@@ -453,14 +453,14 @@ final class LiquidGlassNavigation extends FrameLayout {
             lens.set(center - halfWidth, getHeight() / 2f - halfHeight,
                     center + halfWidth, getHeight() / 2f + halfHeight);
             paint.setShader(null);
-            paint.setColor(Color.argb(30, 80, 90, 110));
+            paint.setColor(Color.argb(18, 80, 90, 110));
             canvas.drawRoundRect(lens.left, lens.top + dp(2), lens.right, lens.bottom + dp(2), halfHeight, halfHeight, paint);
             paint.setShader(lensTint);
             canvas.drawRoundRect(lens, halfHeight, halfHeight, paint);
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(dp(0.8f));
             paint.setShader(null);
-            paint.setColor(Color.argb(230, 255, 255, 255));
+            paint.setColor(Color.argb(120, 255, 255, 255));
             canvas.drawRoundRect(lens, halfHeight, halfHeight, paint);
             paint.setShader(rim);
             paint.setStrokeWidth(dp(1));
