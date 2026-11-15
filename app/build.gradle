@@ -10,8 +10,8 @@ android {
         applicationId 'com.function.cardissuer'
         minSdk 29
         targetSdk 35
-        versionCode 30
-        versionName '3.1.10'
+        versionCode 31
+        versionName '3.1.11'
         testInstrumentationRunner 'com.function.cardissuer.CryptoDeviceTest'
         ndk {
             abiFilters 'arm64-v8a'

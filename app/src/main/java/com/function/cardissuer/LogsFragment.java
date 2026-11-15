@@ -67,7 +67,7 @@ public final class LogsFragment extends Fragment {
         header.addView(clear);
         page.addView(header);
         count = label("正在读取日志", 12, GRAY, false);
-        count.setPadding(dp(20), 0, dp(20), dp(16));
+        count.setPadding(dp(20), 0, dp(20), dp(8));
         page.addView(count);
         filters = new LiquidGlassNavigation(getActivity(), FILTERS, false);
         FrameLayout frame = new FrameLayout(getActivity());
@@ -75,7 +75,7 @@ public final class LogsFragment extends Fragment {
         ListView list = new ListView(getActivity());
         list.setDivider(null);
         list.setClipToPadding(false);
-        list.setPadding(0, filters.preferredHeight() + dp(28), 0,
+        list.setPadding(0, filters.preferredHeight() + dp(20), 0,
                 dp(16) + LiquidGlassNavigation.contentBottomInset(getActivity()));
         list.setAdapter(adapter);
         list.setOnItemClickListener((parent, view, position, id) -> showLog(filtered.get(position)));
@@ -91,7 +91,7 @@ public final class LogsFragment extends Fragment {
             list.setSelection(0);
         });
         FrameLayout.LayoutParams segmented = new FrameLayout.LayoutParams(-1, filters.preferredHeight(), Gravity.TOP);
-        segmented.setMargins(dp(24), dp(12), dp(24), 0);
+        segmented.setMargins(dp(24), dp(4), dp(24), 0);
         frame.addView(filters, segmented);
         filters.setBackdropSource(list);
         render();
