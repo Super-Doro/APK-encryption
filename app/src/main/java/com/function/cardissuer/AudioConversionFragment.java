@@ -364,6 +364,8 @@ public final class AudioConversionFragment extends Fragment {
     private void convert(List<AudioConverter.Source> inputs, AudioConverter.Format format, File directory) {
         List<AudioConverter.Output> converted = new ArrayList<>();
         int failures = 0;
+        Throwable firstFailure = null;
+        String firstFailedFile = null;
         try {
             checkCancelled();
             files.create(directory);
@@ -383,11 +385,19 @@ public final class AudioConversionFragment extends Fragment {
                     }));
                 } catch (IOException | SecurityException error) {
                     failures++;
+                    if (firstFailure == null) {
+                        firstFailure = error;
+                        firstFailedFile = source.path;
+                    }
                     engine.log("音频转换失败", source.path, error);
                 }
             }
             checkCancelled();
-            if (converted.isEmpty()) throw new IOException("所有文件均转换失败，具体原因请查看日志");
+            if (converted.isEmpty()) {
+                throw new IOException("所有文件均转换失败\n目标格式  " + format.title
+                        + "\n首个失败文件  " + firstFailedFile
+                        + "\n\n" + (firstFailure == null ? "未返回失败详情" : firstFailure.getMessage()), firstFailure);
+            }
             files.save(directory, converted);
             checkCancelled();
             String summary = "成功转换 " + converted.size() + " 个文件"

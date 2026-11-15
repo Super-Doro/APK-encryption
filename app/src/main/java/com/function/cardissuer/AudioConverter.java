@@ -14,7 +14,10 @@ import com.arthenica.ffmpegkit.MediaInformationSession;
 import com.arthenica.ffmpegkit.ReturnCode;
 import com.arthenica.ffmpegkit.StreamInformation;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -155,9 +158,14 @@ final class AudioConverter {
 
     private Source probe(Uri uri, String path) throws IOException {
         checkCancelled();
+        try (InputStream stream = context.getContentResolver().openInputStream(uri)) {
+            if (stream == null) throw new IOException("无法读取源文件 " + path);
+            inspectHeader(readHeader(stream), path);
+        }
         String input = FFmpegKitConfig.getSafParameterForRead(context, uri);
         MediaInformationSession session = MediaInformationSession.create(new String[]{
-                "-v", "error", "-print_format", "json", "-show_format", "-show_streams", input});
+                "-v", "error", "-probesize", "32M", "-analyzeduration", "30000000",
+                "-print_format", "json", "-show_format", "-show_streams", input});
         sessionId = session.getSessionId();
         try {
             checkCancelled();
@@ -191,36 +199,117 @@ final class AudioConverter {
             Progress progress) throws IOException {
         checkCancelled();
         String name = outputName(source.path, format.extension, names);
+        File inputFile = new File(directory, index + "-source.bin");
         File destination = new File(directory, index + "." + format.extension);
-        List<String> command = new ArrayList<>(Arrays.asList("-hide_banner", "-nostdin", "-loglevel", "error",
-                "-y", "-i", FFmpegKitConfig.getSafParameterForRead(context, source.uri),
-                "-map", "0:a:0", "-vn", "-sn", "-dn", "-map_metadata", "0", "-c:a", format.codec));
-        command.addAll(Arrays.asList(format.options));
-        command.add(destination.getAbsolutePath());
-        FFmpegSession session = FFmpegSession.create(command.toArray(new String[0]), null, null, statistics -> {
-            if (source.duration > 0) {
-                int percent = (int) Math.min(99, statistics.getTime() / (source.duration * 10));
-                progress.update(source.path, Math.max(0, percent));
-            }
-        }, LogRedirectionStrategy.NEVER_PRINT_LOGS);
-        sessionId = session.getSessionId();
         boolean success = false;
         try {
+            String header = copySource(source, inputFile, progress);
+            List<String> command = new ArrayList<>(Arrays.asList("-hide_banner", "-nostdin", "-loglevel", "warning",
+                    "-y", "-abort_on", "empty_output", "-probesize", "32M", "-analyzeduration", "30000000",
+                    "-i", inputFile.getAbsolutePath(), "-map", "0:a:0", "-vn", "-sn", "-dn",
+                    "-map_metadata", "0", "-c:a", format.codec));
+            command.addAll(Arrays.asList(format.options));
+            command.add(destination.getAbsolutePath());
+            FFmpegSession session = FFmpegSession.create(command.toArray(new String[0]), null, null, statistics -> {
+                if (source.duration > 0) {
+                    int percent = (int) Math.min(99, 10 + statistics.getTime() * 89 / (source.duration * 1000));
+                    progress.update(source.path, Math.max(10, percent));
+                }
+            }, LogRedirectionStrategy.NEVER_PRINT_LOGS);
+            sessionId = session.getSessionId();
             checkCancelled();
+            progress.update(source.path + "\n正在编码", 10);
             FFmpegKitConfig.ffmpegExecute(session);
             checkCancelled();
             if (!ReturnCode.isSuccess(session.getReturnCode()) || !destination.isFile() || destination.length() == 0) {
-                throw new IOException("转换失败 " + source.path + "\n" + session.getAllLogsAsString()
-                        + "\n" + session.getFailStackTrace());
+                String nativeLog = session.getAllLogsAsString();
+                String failureTrace = session.getFailStackTrace();
+                boolean noFrames = nativeLog.contains("after EOF") || nativeLog.contains("empty_output")
+                        || nativeLog.contains("Output file is empty") || nativeLog.contains("Nothing was written");
+                throw new IOException((noFrames ? "未解码出有效音频数据，源文件可能不完整、损坏或仍包含加密数据。\n" : "")
+                        + "文件  " + source.path
+                        + "\n输入格式  " + source.type
+                        + "\n实际读取字节  " + inputFile.length()
+                        + "\n文件头  " + header
+                        + "\n目标格式  " + format.title + " / " + format.codec
+                        + "\n返回码  " + session.getReturnCode() + " / " + session.getState()
+                        + "\n输出字节  " + destination.length()
+                        + "\nFFmpeg  " + FFmpegKitConfig.getFFmpegVersion()
+                        + "\n命令  " + session.getCommand()
+                        + "\n\n引擎日志\n" + (nativeLog.isBlank() ? "引擎未返回日志" : nativeLog)
+                        + (failureTrace == null || failureTrace.isBlank() ? "" : "\n\n" + failureTrace));
             }
             success = true;
             return new Output(destination, name);
         } finally {
             sessionId = 0;
+            if (inputFile.exists() && !inputFile.delete()) {
+                log("音频源文件缓存清理失败", source.path, new IOException("无法删除 " + inputFile));
+            }
             if (!success && destination.exists() && !destination.delete()) {
                 android.util.Log.w("DoroAudio", "无法清理转换未完成的文件 " + destination);
             }
         }
+    }
+
+    private String copySource(Source source, File destination, Progress progress) throws IOException {
+        long expected = sourceSize(source.uri);
+        progress.update(source.path + "\n正在读取源文件", 0);
+        try (InputStream input = context.getContentResolver().openInputStream(source.uri);
+                OutputStream output = new FileOutputStream(destination)) {
+            if (input == null) throw new IOException("系统未返回源文件数据 " + source.path);
+            byte[] header = readHeader(input);
+            String signature = inspectHeader(header, source.path);
+            output.write(header);
+            byte[] buffer = new byte[256 * 1024];
+            long done = header.length;
+            int previous = -1;
+            int length;
+            while ((length = input.read(buffer)) != -1) {
+                checkCancelled();
+                output.write(buffer, 0, length);
+                done += length;
+                int percent = expected > 0 ? (int) Math.min(9, done * 9.0 / expected) : 0;
+                if (percent != previous) {
+                    previous = percent;
+                    progress.update(source.path + "\n正在读取源文件", percent);
+                }
+            }
+            checkCancelled();
+            return signature;
+        }
+    }
+
+    private long sourceSize(Uri uri) {
+        try (Cursor cursor = context.getContentResolver().query(uri,
+                new String[]{OpenableColumns.SIZE}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) return cursor.getLong(0);
+        } catch (RuntimeException error) { android.util.Log.w("DoroAudio", "无法获取源文件大小", error); }
+        return -1;
+    }
+
+    private byte[] readHeader(InputStream input) throws IOException {
+        byte[] header = new byte[16];
+        int done = 0;
+        while (done < header.length) {
+            checkCancelled();
+            int length = input.read(header, done, header.length - done);
+            if (length < 0) break;
+            done += length;
+        }
+        return Arrays.copyOf(header, done);
+    }
+
+    private String inspectHeader(byte[] header, String path) throws IOException {
+        if (header.length == 0) throw new IOException("源文件为空，或文件提供程序返回了空内容\n文件  " + path);
+        StringBuilder signature = new StringBuilder(header.length * 2);
+        for (byte value : header) signature.append(String.format(Locale.ROOT, "%02X", value & 255));
+        String result = signature.toString();
+        // Compare file signatures, including files whose extension has been changed.
+        if (result.equals("7CD532EB86027F4BA8AFA68E0FFF9914") || result.equals("0528BC96E9E45A4391AABDD07AF53631")) {
+            throw new IOException("文件内容为 KGM/VPR 加密音乐，请使用来源播放器导出的普通音频文件进行转换。\n文件  " + path);
+        }
+        return result;
     }
 
     String documentName(Uri uri) {
